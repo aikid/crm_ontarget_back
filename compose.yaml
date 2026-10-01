@@ -1,0 +1,24 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ontarget-postgres-test
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ontarget_test
+      POSTGRES_USER: ontarget
+      POSTGRES_PASSWORD: ontarget_dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - ontarget_postgres_test_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ontarget -d ontarget_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  ontarget_postgres_test_data:
+    name: ontarget_postgres_test_data
+

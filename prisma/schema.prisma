@@ -1,0 +1,293 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Client {
+  id        String        @id @default(cuid())
+  name      String
+  active    Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  stores    Store[]
+  campaigns Campaign[]
+  users     User[]
+  leads     Lead[]
+  imports   ImportBatch[]
+}
+
+model Store {
+  id        String           @id @default(cuid())
+  clientId  String
+  name      String
+  shortName String
+  active    Boolean          @default(true)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  client    Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  campaigns Campaign[]
+  leads     Lead[]
+  metrics   CampaignMetric[]
+  imports   ImportBatch[]
+
+  @@unique([id, clientId])
+  @@index([clientId])
+}
+
+model User {
+  id           String        @id @default(cuid())
+  clientId     String?
+  name         String
+  email        String        @unique
+  initials     String
+  passwordHash String
+  role         UserRole
+  active       Boolean       @default(true)
+  lastLoginAt  DateTime?
+  client       Client?       @relation(fields: [clientId], references: [id])
+  calls        Call[]
+  callbacks    Callback[]
+  sessions     AuthSession[]
+  imports      ImportBatch[]
+
+  @@index([clientId])
+}
+
+enum UserRole {
+  GESTOR
+  SDR
+  CLIENT
+}
+
+enum CampaignStatus {
+  ACTIVE
+  INACTIVE
+  COMPLETED
+}
+
+enum ImportStatus {
+  COMPLETED
+  COMPLETED_WITH_ERRORS
+  FAILED
+}
+
+model AuthSession {
+  id         String   @id @default(cuid())
+  userId     String
+  tokenHash  String   @unique
+  csrfToken  String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Campaign {
+  id             String                  @id @default(cuid())
+  clientId       String
+  storeId        String
+  name           String
+  status         CampaignStatus          @default(ACTIVE)
+  startDate      DateTime
+  endDate        DateTime
+  receivedLeads  Int                     @default(0)
+  workedLeads    Int                     @default(0)
+  client         Client                  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  store          Store                   @relation(fields: [storeId, clientId], references: [id, clientId], onDelete: Restrict)
+  leads          Lead[]
+  metrics        CampaignMetric[]
+  dailyMetrics   DailyMetric[]
+  outcomeMetrics CampaignOutcomeMetric[]
+  imports        ImportBatch[]
+
+  @@unique([id, clientId])
+  @@unique([id, storeId, clientId])
+  @@index([clientId, status])
+  @@index([storeId])
+}
+
+model CampaignMetric {
+  id            String   @id @default(cuid())
+  campaignId    String
+  storeId       String?
+  received      Int
+  worked        Int
+  calls         Int
+  contacts      Int
+  appointments  Int
+  qualified     Int
+  opportunities Int
+  contactRate   Float
+  conversion    Float
+  audited       Int      @default(0)
+  confirmed     Int      @default(0)
+  divergences   Int      @default(0)
+  campaign      Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  store         Store?   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, storeId])
+  @@index([campaignId])
+}
+
+model CampaignOutcomeMetric {
+  id         String   @id @default(cuid())
+  campaignId String
+  result     String
+  value      Int
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, result])
+}
+
+model DailyMetric {
+  id           String   @id @default(cuid())
+  campaignId   String
+  date         DateTime
+  leads        Int
+  contacts     Int
+  appointments Int
+  campaign     Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, date])
+}
+
+model Lead {
+  id            String         @id @default(cuid())
+  clientId      String
+  campaignId    String
+  storeId       String
+  name          String
+  phone         String
+  vehicle       String
+  origin        String
+  reason        String?
+  status        String         @default("pending")
+  attempts      Int            @default(0)
+  lastContact   DateTime?
+  invalidPhone  Boolean        @default(false)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  client        Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  campaign      Campaign       @relation(fields: [campaignId, storeId, clientId], references: [id, storeId, clientId], onDelete: Cascade)
+  store         Store          @relation(fields: [storeId, clientId], references: [id, clientId], onDelete: Restrict)
+  calls         Call[]
+  callback      Callback?
+  appointment   Appointment?
+  qualification Qualification?
+  audit         Audit?
+  importBatchId String?
+  importRow     Int?
+  importBatch   ImportBatch?   @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
+
+  @@unique([campaignId, phone])
+  @@index([campaignId, status, createdAt])
+  @@index([clientId, storeId])
+  @@index([importBatchId])
+}
+
+model ImportBatch {
+  id           String        @id @default(cuid())
+  clientId     String
+  storeId      String
+  campaignId   String
+  uploadedById String
+  fileName     String
+  fileType     String
+  status       ImportStatus
+  totalRows    Int
+  importedRows Int
+  rejectedRows Int
+  createdAt    DateTime      @default(now())
+  completedAt  DateTime      @default(now())
+  client       Client        @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  store        Store         @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  campaign     Campaign      @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  uploadedBy   User          @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  leads        Lead[]
+  errors       ImportError[]
+
+  @@index([campaignId, createdAt])
+  @@index([uploadedById])
+}
+
+model ImportError {
+  id        String      @id @default(cuid())
+  batchId   String
+  rowNumber Int
+  code      String
+  message   String
+  rawData   Json?
+  batch     ImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId, rowNumber])
+}
+
+model Call {
+  id           String    @id @default(cuid())
+  leadId       String
+  sdrId        String?
+  provider     String    @default("twilio")
+  providerSid  String?   @unique
+  result       String?
+  detail       String?
+  durationSec  Int?
+  recordingUrl String?
+  startedAt    DateTime  @default(now())
+  endedAt      DateTime?
+  createdAt    DateTime  @default(now())
+  lead         Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  sdr          User?     @relation(fields: [sdrId], references: [id])
+
+  @@index([leadId, startedAt])
+  @@index([sdrId, startedAt])
+}
+
+model Callback {
+  id           String    @id @default(cuid())
+  leadId       String    @unique
+  assignedToId String?
+  scheduledAt  DateTime
+  notes        String?
+  completedAt  DateTime?
+  lead         Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  assignedTo   User?     @relation(fields: [assignedToId], references: [id])
+
+  @@index([scheduledAt, completedAt])
+}
+
+model Appointment {
+  id        String   @id @default(cuid())
+  leadId    String   @unique
+  date      DateTime
+  period    String
+  seller    String?
+  notes     String?
+  createdAt DateTime @default(now())
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+}
+
+model Qualification {
+  id        String   @id @default(cuid())
+  leadId    String   @unique
+  type      String
+  notes     String?
+  createdAt DateTime @default(now())
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+}
+
+model Audit {
+  id         String    @id @default(cuid())
+  leadId     String    @unique
+  status     String    @default("not_audited")
+  confidence Int?
+  evidence   String?
+  auditedAt  DateTime?
+  lead       Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+}
