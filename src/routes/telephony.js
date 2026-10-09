@@ -1,95 +1,99 @@
 const express = require("express");
-const twilio = require("twilio");
-const env = require("../config/env");
 const prisma = require("../lib/prisma");
 const { HttpError, required } = require("../lib/http-error");
 const { leadForAuth } = require("../auth/access");
 const { requireAuth, requireCsrf, requireRole } = require("../middleware/auth");
+const threeCx = require("../services/three-cx");
+const callState = require("../services/telephony-state");
 
 const router = express.Router();
 
-function assertConfigured(requiredKeys) {
-  const missing = requiredKeys.filter((key) => !env.twilio[key]);
-  if (missing.length) throw new HttpError(503, "Telefonia não configurada.", { missing });
+async function ownedCall(request, callId) {
+  const call = await prisma.call.findFirst({
+    where: { id: callId, sdrId: request.auth.user.id, provider: "3cx" },
+  });
+  if (!call) throw new HttpError(404, "Chamada não encontrada.");
+  return call;
 }
 
-function normalizePhone(value) {
-  const phone = String(value || "").replace(/[\s()-]/g, "");
-  if (!/^\+[1-9]\d{7,14}$/.test(phone)) {
-    throw new HttpError(400, "Telefone deve estar no formato E.164, por exemplo +5561999998877.");
-  }
-  return phone;
+function publicStatus(status) {
+  if (["Connected", "Hold", "Held"].includes(status)) return "connected";
+  if (["Dialing", "Ringing", "Undefined"].includes(status)) return "dialing";
+  return "ended";
 }
-
-router.post("/token", requireAuth, requireRole("SDR"), requireCsrf, (request, response) => {
-  assertConfigured(["accountSid", "apiKey", "apiSecret", "appSid"]);
-  const identity = request.auth.user.id.replace(/[^a-zA-Z0-9_]/g, "").slice(0, 64);
-  if (!identity) throw new HttpError(400, "Identidade do SDR inválida.");
-  const AccessToken = twilio.jwt.AccessToken;
-  const token = new AccessToken(env.twilio.accountSid, env.twilio.apiKey, env.twilio.apiSecret, { identity });
-  token.addGrant(new AccessToken.VoiceGrant({ outgoingApplicationSid: env.twilio.appSid, incomingAllow: false }));
-  response.json({ token: token.toJwt(), identity, expiresIn: 3600 });
-});
 
 router.post("/calls", requireAuth, requireRole("SDR"), requireCsrf, async (request, response) => {
+  threeCx.assertConfigured();
   const leadId = required(request.body.leadId, "leadId");
   const lead = await leadForAuth(request.auth, leadId);
-  if (!lead) throw new HttpError(404, "Lead não encontrado.");
-  const call = await prisma.call.create({ data: { leadId, sdrId: request.auth.user.id } });
-  response.status(201).json({ id: call.id, to: normalizePhone(lead.phone) });
-});
-
-router.post("/voice", async (request, response) => {
-  assertConfigured(["accountSid", "apiKey", "apiSecret", "appSid", "phoneNumber"]);
-  const callId = required(request.body.CallId, "CallId");
-  const call = await prisma.call.findUnique({ where: { id: callId }, include: { lead: true } });
-  if (!call) throw new HttpError(404, "Registro de chamada não encontrado.");
-
-  // Parâmetros enviados pelo navegador não são confiáveis. O destino sempre
-  // vem do lead persistido, impedindo que o webhook seja usado como discador aberto.
-  const to = normalizePhone(call.lead.phone);
-  if (request.body.CallSid) {
-    await prisma.call.update({ where: { id: callId }, data: { providerSid: request.body.CallSid } });
+  if (lead.reservedById !== request.auth.user.id || !lead.reservedUntil || lead.reservedUntil <= new Date()) {
+    throw new HttpError(409, "Reserve este lead na fila antes de iniciar a ligação.");
   }
 
-  const voice = new twilio.twiml.VoiceResponse();
-  const callbackBase = env.publicBaseUrl ? env.publicBaseUrl.replace(/\/$/, "") : null;
-  const dial = voice.dial({
-    callerId: env.twilio.phoneNumber,
-    answerOnBridge: true,
-    record: "record-from-answer-dual",
-    ...(callbackBase && callId ? { recordingStatusCallback: `${callbackBase}/api/telephony/recordings/${callId}` } : {}),
-  });
-  dial.number({
-    ...(callbackBase && callId ? {
-      statusCallback: `${callbackBase}/api/telephony/status/${callId}`,
-      statusCallbackEvent: "initiated ringing answered completed",
-    } : {}),
-  }, to);
-  response.type("text/xml").send(voice.toString());
+  const destination = threeCx.normalizePhone(lead.phone);
+  const call = await prisma.call.create({ data: { leadId, sdrId: request.auth.user.id, provider: "3cx" } });
+  try {
+    const participant = await threeCx.makeCall(destination);
+    const pbxCallId = String(participant.callid);
+    await prisma.call.update({ where: { id: call.id }, data: { providerSid: pbxCallId } });
+    callState.remember(call.id, {
+      pbxCallId,
+      participantId: participant.id,
+      status: participant.status || "Dialing",
+      seenParticipant: true,
+      startedAt: Date.now(),
+    });
+    response.status(201).json({ id: call.id, to: destination, status: publicStatus(participant.status), pbxCallId });
+  } catch (error) {
+    await prisma.call.update({ where: { id: call.id }, data: { result: "failed", detail: error.message, endedAt: new Date() } });
+    throw new HttpError(502, `Não foi possível iniciar a ligação pela 3CX: ${error.message}`);
+  }
 });
 
-router.post("/status/:callId", async (request, response) => {
-  const completed = request.body.CallStatus === "completed";
-  await prisma.call.updateMany({
-    where: { id: request.params.callId },
-    data: {
-      providerSid: request.body.ParentCallSid || request.body.CallSid,
-      durationSec: request.body.CallDuration ? Number(request.body.CallDuration) : undefined,
-      endedAt: completed ? new Date() : undefined,
-    },
-  });
-  response.sendStatus(204);
+router.get("/calls/:callId/status", requireAuth, requireRole("SDR"), async (request, response) => {
+  const call = await ownedCall(request, request.params.callId);
+  if (call.endedAt) return response.json({ status: "ended", participantId: null });
+
+  try {
+    const participants = await threeCx.getParticipants();
+    const participant = threeCx.participantForCall(participants, call.providerSid);
+    const remembered = callState.get(call.id);
+    if (participant) {
+      const status = publicStatus(participant.status);
+      callState.remember(call.id, {
+        pbxCallId: call.providerSid,
+        participantId: participant.id,
+        status: participant.status,
+        seenParticipant: true,
+        ...(status === "connected" && !remembered?.connectedAt ? { connectedAt: Date.now() } : {}),
+      });
+      return response.json({ status, participantId: participant.id });
+    }
+
+    const gracePeriod = Date.now() - call.startedAt.getTime() < 5_000;
+    if (!remembered?.seenParticipant && gracePeriod) return response.json({ status: "dialing", participantId: null });
+    const durationSec = remembered?.connectedAt ? Math.max(0, Math.round((Date.now() - remembered.connectedAt) / 1_000)) : 0;
+    await prisma.call.update({ where: { id: call.id }, data: { endedAt: new Date(), durationSec } });
+    callState.forget(call.id);
+    return response.json({ status: "ended", participantId: null, durationSec });
+  } catch (error) {
+    throw new HttpError(502, `Não foi possível consultar o estado da ligação: ${error.message}`);
+  }
 });
 
-router.post("/recordings/:callId", async (request, response) => {
-  await prisma.call.updateMany({
-    where: { id: request.params.callId },
-    data: {
-      recordingUrl: request.body.RecordingUrl,
-      durationSec: request.body.RecordingDuration ? Number(request.body.RecordingDuration) : undefined,
-    },
-  });
+router.post("/calls/:callId/hangup", requireAuth, requireRole("SDR"), requireCsrf, async (request, response) => {
+  const call = await ownedCall(request, request.params.callId);
+  const remembered = callState.get(call.id);
+  try {
+    let participantId = remembered?.participantId;
+    if (!participantId && call.providerSid) participantId = threeCx.participantForCall(await threeCx.getParticipants(), call.providerSid)?.id;
+    if (participantId) await threeCx.dropParticipant(participantId);
+  } catch (error) {
+    if (![404, 422, 424].includes(error.status)) throw new HttpError(502, `Não foi possível encerrar a ligação: ${error.message}`);
+  }
+  const durationSec = remembered?.connectedAt ? Math.max(0, Math.round((Date.now() - remembered.connectedAt) / 1_000)) : (call.durationSec || 0);
+  await prisma.call.updateMany({ where: { id: call.id, endedAt: null }, data: { endedAt: new Date(), durationSec } });
+  callState.forget(call.id);
   response.sendStatus(204);
 });
 

@@ -39,20 +39,22 @@ model Store {
 }
 
 model User {
-  id           String        @id @default(cuid())
-  clientId     String?
-  name         String
-  email        String        @unique
-  initials     String
-  passwordHash String
-  role         UserRole
-  active       Boolean       @default(true)
-  lastLoginAt  DateTime?
-  client       Client?       @relation(fields: [clientId], references: [id])
-  calls        Call[]
-  callbacks    Callback[]
-  sessions     AuthSession[]
-  imports      ImportBatch[]
+  id            String        @id @default(cuid())
+  clientId      String?
+  name          String
+  email         String        @unique
+  initials      String
+  passwordHash  String
+  role          UserRole
+  active        Boolean       @default(true)
+  lastLoginAt   DateTime?
+  client        Client?       @relation(fields: [clientId], references: [id])
+  calls         Call[]
+  attempts      Attempt[]
+  callbacks     Callback[]
+  reservedLeads Lead[]        @relation("LeadReservation")
+  sessions      AuthSession[]
+  imports       ImportBatch[]
 
   @@index([clientId])
 }
@@ -73,6 +75,27 @@ enum ImportStatus {
   COMPLETED
   COMPLETED_WITH_ERRORS
   FAILED
+}
+
+enum LeadStatus {
+  PENDING
+  CALLBACK
+  CONTACTED
+  QUALIFIED
+  NOT_QUALIFIED
+  REFUSED
+  EXHAUSTED
+  INVALID_NUMBER
+}
+
+enum AttemptOutcome {
+  NO_ANSWER
+  INVALID_NUMBER
+  REFUSED
+  CONTACTED
+  QUALIFIED
+  NOT_QUALIFIED
+  CALLBACK
 }
 
 model AuthSession {
@@ -159,37 +182,61 @@ model DailyMetric {
 }
 
 model Lead {
-  id            String         @id @default(cuid())
-  clientId      String
-  campaignId    String
-  storeId       String
-  name          String
-  phone         String
-  vehicle       String
-  origin        String
-  reason        String?
-  status        String         @default("pending")
-  attempts      Int            @default(0)
-  lastContact   DateTime?
-  invalidPhone  Boolean        @default(false)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  client        Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  campaign      Campaign       @relation(fields: [campaignId, storeId, clientId], references: [id, storeId, clientId], onDelete: Cascade)
-  store         Store          @relation(fields: [storeId, clientId], references: [id, clientId], onDelete: Restrict)
-  calls         Call[]
-  callback      Callback?
-  appointment   Appointment?
-  qualification Qualification?
-  audit         Audit?
-  importBatchId String?
-  importRow     Int?
-  importBatch   ImportBatch?   @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
+  id             String         @id @default(cuid())
+  clientId       String
+  campaignId     String
+  storeId        String
+  name           String
+  phone          String
+  vehicle        String
+  origin         String
+  reason         String?
+  status         LeadStatus     @default(PENDING)
+  attempts       Int            @default(0)
+  lastContact    DateTime?
+  invalidPhone   Boolean        @default(false)
+  reservedById   String?
+  reservedAt     DateTime?
+  reservedUntil  DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  client         Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  campaign       Campaign       @relation(fields: [campaignId, storeId, clientId], references: [id, storeId, clientId], onDelete: Cascade)
+  store          Store          @relation(fields: [storeId, clientId], references: [id, clientId], onDelete: Restrict)
+  calls          Call[]
+  attemptRecords Attempt[]
+  reservedBy     User?          @relation("LeadReservation", fields: [reservedById], references: [id], onDelete: SetNull)
+  callback       Callback?
+  appointment    Appointment?
+  qualification  Qualification?
+  audit          Audit?
+  importBatchId  String?
+  importRow      Int?
+  importBatch    ImportBatch?   @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
 
   @@unique([campaignId, phone])
-  @@index([campaignId, status, createdAt])
+  @@index([campaignId, status, reservedUntil, createdAt])
+  @@index([reservedById, reservedUntil])
   @@index([clientId, storeId])
   @@index([importBatchId])
+}
+
+model Attempt {
+  id         String         @id @default(cuid())
+  leadId     String
+  sdrId      String
+  sequence   Int
+  outcome    AttemptOutcome
+  notes      String?
+  startedAt  DateTime       @default(now())
+  finishedAt DateTime       @default(now())
+  createdAt  DateTime       @default(now())
+  lead       Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  sdr        User           @relation(fields: [sdrId], references: [id], onDelete: Restrict)
+
+  @@unique([leadId, sequence])
+  @@index([sdrId, createdAt])
+  @@index([leadId, createdAt])
 }
 
 model ImportBatch {
@@ -233,8 +280,8 @@ model Call {
   id           String    @id @default(cuid())
   leadId       String
   sdrId        String?
-  provider     String    @default("twilio")
-  providerSid  String?   @unique
+  provider     String    @default("3cx")
+  providerSid  String?
   result       String?
   detail       String?
   durationSec  Int?

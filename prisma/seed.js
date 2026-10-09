@@ -3,6 +3,23 @@ const { hashPassword } = require("../src/auth/password");
 
 const prisma = new PrismaClient();
 const at = (iso) => new Date(iso);
+const leadStatus = {
+  pending: "PENDING",
+  scheduled: "CONTACTED",
+  qualified: "QUALIFIED",
+  callback: "CALLBACK",
+  no_answer: "EXHAUSTED",
+  no_interest: "REFUSED",
+  invalid: "INVALID_NUMBER",
+};
+const attemptOutcome = {
+  scheduled: "CONTACTED",
+  qualified: "QUALIFIED",
+  callback: "CALLBACK",
+  no_answer: "NO_ANSWER",
+  no_interest: "REFUSED",
+  invalid: "INVALID_NUMBER",
+};
 
 const clients = [
   { id: "BRASAL", name: "Grupo Brasal" },
@@ -52,7 +69,7 @@ async function main() {
   const passwordHash = await hashPassword(process.env.SEED_PASSWORD || "OnTarget@123");
   await prisma.$transaction([
     prisma.audit.deleteMany(), prisma.appointment.deleteMany(), prisma.qualification.deleteMany(),
-    prisma.callback.deleteMany(), prisma.call.deleteMany(), prisma.importError.deleteMany(), prisma.importBatch.deleteMany(), prisma.lead.deleteMany(),
+    prisma.callback.deleteMany(), prisma.attempt.deleteMany(), prisma.call.deleteMany(), prisma.importError.deleteMany(), prisma.importBatch.deleteMany(), prisma.lead.deleteMany(),
     prisma.campaignOutcomeMetric.deleteMany(), prisma.dailyMetric.deleteMany(), prisma.campaignMetric.deleteMany(),
     prisma.authSession.deleteMany(), prisma.user.deleteMany(), prisma.campaign.deleteMany(), prisma.store.deleteMany(), prisma.client.deleteMany(),
   ]);
@@ -80,6 +97,7 @@ async function main() {
     await prisma.lead.create({
       data: {
         ...lead,
+        status: leadStatus[lead.status],
         clientId: "BRASAL",
         campaignId: "FEIRAO-VW-AGO",
         storeId: "BRASAL-SIA",
@@ -87,6 +105,7 @@ async function main() {
         lastContact: lead.lastContact ? at(lead.lastContact) : null,
         createdAt: at("2026-08-09T12:00:00Z"),
         calls: { create: calls.map(([startedAt, result, detail, recordingUrl]) => ({ sdrId: "user-sdr-ana", startedAt: at(startedAt), endedAt: at(startedAt), result, detail, recordingUrl, durationSec: recordingUrl ? 98 : 0 })) },
+        attemptRecords: { create: calls.map(([startedAt, result, detail], index) => ({ sdrId: "user-sdr-ana", sequence: index + 1, outcome: attemptOutcome[result], notes: detail, startedAt: at(startedAt), finishedAt: at(startedAt), createdAt: at(startedAt) })) },
         ...(appointment ? { appointment: { create: { ...appointment, date: at(appointment.date) } } } : {}),
         ...(qualification ? { qualification: { create: qualification } } : {}),
         ...(callback ? { callback: { create: { ...callback, scheduledAt: at(callback.scheduledAt), assignedToId: "user-sdr-ana" } } } : {}),

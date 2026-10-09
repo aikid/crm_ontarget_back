@@ -102,6 +102,36 @@ O modelo aceita CSV ou XLSX com as colunas fixas:
 
 ## Contrato usado pelo frontend
 
+### Fila SDR, tentativas e retornos
+
+A fila usa PostgreSQL com `FOR UPDATE SKIP LOCKED`. Cada lead fica reservado por 15 minutos para um único SDR, e o frontend renova essa reserva durante o atendimento. Uma tentativa só pode ser registrada pelo SDR proprietário da reserva.
+
+| Ação | Endpoint |
+|---|---|
+| Campanhas ativas | `GET /api/sdr/campaigns` |
+| Reservar próximo lead FIFO | `POST /api/sdr/queue/claim` |
+| Renovar reserva | `POST /api/sdr/queue/renew` |
+| Liberar reserva | `POST /api/sdr/queue/release` |
+| Retornos do dia | `GET /api/sdr/callbacks/today` |
+| Reservar um retorno vencido | `POST /api/sdr/callbacks/:leadId/claim` |
+| Registrar tentativa e resultado | `POST /api/leads/:leadId/outcomes` |
+
+Retornos são atribuídos ao SDR que os registrou e ficam fora da fila automática. O limite é de três tentativas por lead. `NO_ANSWER` devolve o lead à fila até a terceira tentativa; ao atingir o limite, o status passa a `EXHAUSTED`.
+
+### Dashboard e consulta operacional
+
+Somente Gestores podem acessar os endpoints operacionais globais. Os indicadores são calculados a partir das tentativas persistidas, sem depender do provedor de telefonia ou dos dados demonstrativos do frontend.
+
+| Ação | Endpoint |
+|---|---|
+| Dashboard básico | `GET /api/operations/dashboard` |
+| Consulta paginada de leads | `GET /api/operations/leads` |
+| Histórico completo de um lead | `GET /api/leads/:leadId` |
+
+O dashboard aceita `dateFrom`, `dateTo`, `clientId`, `storeId`, `campaignId` e `sdrId`. O período máximo é de 92 dias.
+
+A consulta de leads aceita `search`, `clientId`, `storeId`, `campaignId`, `status`, `sdrId`, `page` e `pageSize`. A busca considera nome, telefone, veículo e origem; `pageSize` é limitado a 50 registros.
+
 | Fluxo da interface | Endpoint |
 |---|---|
 | Sessão atual | `GET /api/auth/session` |
@@ -111,13 +141,14 @@ O modelo aceita CSV ou XLSX com as colunas fixas:
 | Resultados com filtros | `GET /api/campaigns/:campaignId/leads` |
 | Exportação | `GET /api/campaigns/:campaignId/leads.csv` |
 | Detalhe do lead | `GET /api/leads/:leadId` |
-| Próximo lead do SDR | `GET /api/sdr/queue/next?campaignId=FEIRAO-VW-AGO` |
+| Próximo lead do SDR | `POST /api/sdr/queue/claim` |
 | Resumo diário do SDR | `GET /api/sdr/:sdrId/summary` |
 | Registrar desfecho | `POST /api/leads/:leadId/outcomes` |
 | Dashboard interno | `GET /api/operations/dashboard` |
-| Token Twilio Voice SDK | `POST /api/telephony/token` |
-| Abrir registro de chamada | `POST /api/telephony/calls` |
-| TwiML App webhook | `POST /api/telephony/voice` |
+| Iniciar chamada 3CX | `POST /api/telephony/calls` |
+| Consultar estado da chamada | `GET /api/telephony/calls/:callId/status` |
+| Encerrar chamada | `POST /api/telephony/calls/:callId/hangup` |
+| Áudio bidirecional PCM | `WS /api/telephony/calls/:callId/media` |
 
 Filtros aceitos em `leads`: `page`, `pageSize`, `search`, `storeId`, `status`, `vehicle`, `seller` e `audit`.
 
@@ -125,77 +156,51 @@ Filtros aceitos em `leads`: `page`, `pageSize`, `search`, `storeId`, `status`, `
 
 ```json
 {
-  "result": "scheduled",
-  "durationSec": 98,
-  "notes": "Visita confirmada",
-  "appointment": {
-    "date": "2026-08-11T15:00:00-03:00",
-    "period": "Tarde",
-    "seller": "Carlos Mendes"
+  "outcome": "CALLBACK",
+  "notes": "Cliente pediu retorno no fim da tarde",
+  "callback": {
+    "scheduledAt": "2026-10-04T18:00:00-03:00"
   }
 }
 ```
 
-Resultados possíveis: `scheduled`, `qualified`, `callback`, `no_answer`, `no_interest` e `invalid`. Para `qualified`, envie `qualification.type`; para `callback`, envie `callback.scheduledAt`.
+Resultados possíveis: `NO_ANSWER`, `INVALID_NUMBER`, `REFUSED`, `CONTACTED`, `QUALIFIED`, `NOT_QUALIFIED` e `CALLBACK`. Para `CALLBACK`, envie `callback.scheduledAt` com uma data futura.
 
 O SDR é identificado exclusivamente pela sessão autenticada; valores de `sdrId` enviados pelo navegador são ignorados.
 
-## Twilio
+## Telefonia 3CX + OverTele
 
-Configure o **Voice Request URL** do TwiML App (`TWILIO_TWIML_APP_SID`) para chamar:
-
-```text
-POST {PUBLIC_BASE_URL}/api/telephony/voice
-```
-
-O `PUBLIC_BASE_URL` precisa ser HTTPS e acessível pela Twilio. Para desenvolvimento local, exponha a porta `3333` com um túnel HTTPS e use a URL gerada tanto no `.env` quanto no TwiML App. Reinicie o backend depois de alterar o `.env`.
-
-### Túnel local com ngrok (Windows)
-
-Na primeira utilização, copie o authtoken exibido no painel da sua conta ngrok e configure-o no seu próprio terminal. Não salve esse token no projeto:
-
-```powershell
-ngrok config add-authtoken SEU_AUTHTOKEN
-```
-
-Com o backend executando na porta `3333`, abra outro terminal e rode:
-
-```powershell
-cd backend
-npm run tunnel
-```
-
-Copie a URL HTTPS indicada em `Forwarding`, por exemplo `https://exemplo.ngrok-free.app`, e ajuste:
+As credenciais OAuth pertencem somente ao backend:
 
 ```env
-PUBLIC_BASE_URL=https://exemplo.ngrok-free.app
+CX3_PBX_URL=https://8rtech.my3cx.com.br
+CX3_CLIENT_ID=crmontarget
+CX3_CLIENT_SECRET=seu-secret
+CX3_APP_DN=crmontarget
 ```
 
-No TwiML App da Twilio, configure o método `POST` e a Voice Request URL completa:
+O frontend nunca recebe o `CLIENT_SECRET` nem o token da PBX. Ao clicar em **Ligar com Onvox**, o fluxo é:
 
-```text
-https://exemplo.ngrok-free.app/api/telephony/voice
-```
+1. o navegador solicita acesso ao microfone;
+2. `POST /api/telephony/calls` valida a sessão, a reserva do lead e normaliza o telefone para `DDD + número`;
+3. o backend autentica em `/connect/token` e executa `POST /callcontrol/crmontarget/makecall`;
+4. a interface consulta o estado até encontrar `Dialing` ou `Connected` em `/participants`;
+5. quando conectada, abre um WebSocket autenticado com o backend;
+6. o backend faz a ponte dos streams PCM 16-bit, 8 kHz, mono entre navegador e 3CX;
+7. ao desligar, o backend envia a ação `drop` para o participante e persiste duração/encerramento.
 
-Mantenha o processo do ngrok aberto durante o teste. Em contas gratuitas, a URL pode mudar quando o túnel for reiniciado; quando isso ocorrer, atualize o `.env`, reinicie o backend e altere também a Voice Request URL do TwiML App.
+O navegador precisa estar em `localhost` ou HTTPS e o SDR deve permitir o uso do microfone. Em produção, o proxy reverso deve aceitar upgrade de WebSocket no caminho `/api/telephony/calls/*/media`. Não é necessário configurar webhook ou expor o backend diretamente à PBX: todas as chamadas HTTP são iniciadas pelo backend.
 
-No navegador, a tela Operação SDR executa automaticamente este fluxo:
+Checklist 3CX:
 
-1. solicite um token em `/api/telephony/token`;
-2. crie o registro em `/api/telephony/calls`;
-3. chame `device.connect({ params: { To: phoneE164, CallId: id } })`.
-
-Os eventos do SDK atualizam a tela em tempo real e os webhooks atualizam SID, duração e URL da gravação. O navegador precisa estar em `localhost` ou HTTPS e o usuário deve permitir o acesso ao microfone.
-
-Checklist da conta Twilio:
-
-- `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY` e `TWILIO_API_SECRET` pertencem à mesma conta;
-- `TWILIO_API_KEY` é do tipo **Standard**; Restricted API Keys não podem criar Access Tokens para SDKs client-side;
-- `TWILIO_TWIML_APP_SID` aponta para o TwiML App configurado com a URL acima;
-- `TWILIO_PHONE_NUMBER` está em E.164 e é um número com Voice comprado na conta Twilio ou um Outgoing Caller ID já verificado;
-- em contas trial, o destino da chamada precisa estar verificado;
-- o país de destino precisa estar liberado nas permissões geográficas de Voice.
+- a integração `crmontarget` possui acesso à Call Control API;
+- `CX3_CLIENT_ID` e `CX3_APP_DN` correspondem ao DN configurado;
+- o secret está apenas em `backend/.env`;
+- a licença 3CX permite Call Control;
+- o tronco OverTele aceita o destino no formato `DDD + número`;
+- o proxy e firewall permitem conexões HTTPS de saída para a PBX;
+- o proxy do backend mantém WebSockets e streams de longa duração abertos.
 
 ## Observação sobre os mocks
 
-O seed replica as entidades e os totais do protótipo comercial. Os componentes do frontend ainda importam `mockData.ts` e `clientPortalData.ts`; a API já retorna os campos equivalentes para que essa troca possa ser feita tela a tela.
+O seed replica as entidades e os totais do protótipo comercial. A tela de Operação SDR já usa a API real; dashboard e parte do Portal do Cliente ainda usam dados demonstrativos e serão migrados nas etapas seguintes.

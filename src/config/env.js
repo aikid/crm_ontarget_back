@@ -27,11 +27,10 @@ module.exports = {
       ? process.env.SESSION_COOKIE_SECURE === "true"
       : (process.env.NODE_ENV || "development") === "production",
   },
-  twilio: {
-    accountSid: process.env.TWILIO_ACCOUNT_SID,
-    apiKey: process.env.TWILIO_API_KEY,
-    apiSecret: process.env.TWILIO_API_SECRET,
-    appSid: process.env.TWILIO_TWIML_APP_SID,
-    phoneNumber: process.env.TWILIO_PHONE_NUMBER,
+  threeCx: {
+    pbxUrl: process.env.CX3_PBX_URL || "https://8rtech.my3cx.com.br",
+    clientId: process.env.CX3_CLIENT_ID,
+    clientSecret: process.env.CX3_CLIENT_SECRET,
+    appDn: process.env.CX3_APP_DN || process.env.CX3_CLIENT_ID,
   },
 };

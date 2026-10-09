@@ -1,11 +1,22 @@
 const statusLabels = {
-  pending: "Pendente",
-  scheduled: "Agendado",
-  qualified: "Qualificado",
-  callback: "Retorno",
-  no_answer: "Não atendeu",
-  no_interest: "Sem interesse",
-  invalid: "Número inválido",
+  PENDING: "Pendente",
+  CALLBACK: "Retorno",
+  CONTACTED: "Contato realizado",
+  QUALIFIED: "Qualificado",
+  NOT_QUALIFIED: "Não qualificado",
+  REFUSED: "Recusou",
+  EXHAUSTED: "Tentativas esgotadas",
+  INVALID_NUMBER: "Número inválido",
+};
+
+const outcomeLabels = {
+  NO_ANSWER: "Não atendeu",
+  INVALID_NUMBER: "Número inválido",
+  REFUSED: "Recusou",
+  CONTACTED: "Contato realizado",
+  QUALIFIED: "Qualificado",
+  NOT_QUALIFIED: "Não qualificado",
+  CALLBACK: "Retorno solicitado",
 };
 
 const auditLabels = {
@@ -73,14 +84,14 @@ function serializeLead(lead) {
     createdAt: dateTime(lead.createdAt),
     status: statusLabels[lead.status] || lead.status,
     statusCode: lead.status,
-    history: (lead.calls || []).map((call, index) => ({
-      id: call.id,
-      date: date(call.startedAt),
-      time: new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" }).format(call.startedAt),
-      title: `Tentativa ${index + 1}`,
-      detail: call.detail || "Ligação realizada",
-      result: statusLabels[call.result] || call.result || "Em andamento",
-      durationSec: call.durationSec,
+    history: (lead.attemptRecords || []).map((attempt) => ({
+      id: attempt.id,
+      date: date(attempt.finishedAt),
+      time: new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" }).format(attempt.finishedAt),
+      title: `Tentativa ${attempt.sequence}`,
+      detail: attempt.notes || "Resultado registrado",
+      result: outcomeLabels[attempt.outcome] || attempt.outcome,
+      durationSec: null,
     })),
     callback: lead.callback ? {
       scheduledAt: lead.callback.scheduledAt,
@@ -104,7 +115,12 @@ function serializeLead(lead) {
       auditedAt: dateTime(lead.audit.auditedAt),
     } : { status: "Não auditado" },
     recordingAvailable: Boolean((lead.calls || []).some((call) => call.recordingUrl)),
+    reservation: lead.reservedById ? {
+      sdr: lead.reservedBy,
+      reservedAt: lead.reservedAt,
+      reservedUntil: lead.reservedUntil,
+    } : null,
   };
 }
 
-module.exports = { date, dateTime, serializeCampaign, serializeLead, statusLabels };
+module.exports = { date, dateTime, outcomeLabels, serializeCampaign, serializeLead, statusLabels };

@@ -4,6 +4,8 @@ const leadInclude = {
   store: { select: { id: true, name: true, shortName: true } },
   campaign: { select: { id: true, name: true } },
   calls: { orderBy: { startedAt: "asc" } },
+  attemptRecords: { orderBy: { sequence: "asc" } },
+  reservedBy: { select: { id: true, name: true, initials: true } },
   callback: true,
   appointment: true,
   qualification: true,
@@ -15,4 +17,3 @@ async function findLead(id) {
 }
 
 module.exports = { leadInclude, findLead };
-

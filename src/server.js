@@ -1,10 +1,12 @@
 const app = require("./app");
 const env = require("./config/env");
 const prisma = require("./lib/prisma");
+const { attachTelephonyWebSocket } = require("./services/telephony-websocket");
 
 const server = app.listen(env.port, () => {
   console.log(`OnTarget API disponível em http://localhost:${env.port}`);
 });
+attachTelephonyWebSocket(server);
 
 async function shutdown(signal) {
   console.log(`${signal} recebido; encerrando API.`);

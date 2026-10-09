@@ -1,0 +1,1 @@
+ALTER TABLE "Call" ALTER COLUMN "provider" SET DEFAULT '3cx';

@@ -34,7 +34,7 @@
     "express-rate-limit": "^8.7.0",
     "helmet": "^8.1.0",
     "multer": "^2.4.0",
-    "twilio": "^6.1.0",
+    "ws": "^8.22.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
