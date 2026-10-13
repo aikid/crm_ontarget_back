@@ -45,6 +45,22 @@ DATABASE_URL="postgresql://ontarget:senha@localhost:5432/ontarget?schema=public"
 
 Para um banco gerenciado, substitua host, porta, usuário e senha pelos dados fornecidos pelo provedor. Se ele exigir TLS, normalmente a URL também precisará de `sslmode=require`.
 
+### Frontend e backend em domínios diferentes
+
+Quando o frontend está na Vercel e a API no Render, configure no serviço do
+backend as origens exatas permitidas. Mais de uma origem pode ser informada,
+separada por vírgula:
+
+```env
+FRONTEND_URL=https://crmontarget-git-main-aikids-projects.vercel.app,https://seu-dominio-de-producao.com.br
+SESSION_COOKIE_SAME_SITE=none
+SESSION_COOKIE_SECURE=true
+```
+
+`SameSite=None` e `Secure=true` são necessários para o navegador enviar o
+cookie de sessão entre os domínios `vercel.app` e `onrender.com`. Não use `*`
+como origem porque a API recebe cookies com `credentials: include`.
+
 ## Autenticação e perfis
 
 A autenticação utiliza sessão opaca persistida no PostgreSQL e cookie `HttpOnly`. Requisições autenticadas do navegador precisam usar credenciais, e mutações precisam enviar o `csrfToken` retornado no login/sessão pelo cabeçalho `X-CSRF-Token`.

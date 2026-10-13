@@ -1,5 +1,6 @@
 const path = require("node:path");
 const dotenv = require("dotenv");
+const { originList } = require("./origins");
 
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
@@ -9,15 +10,11 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-function list(value, fallback = []) {
-  return value ? value.split(",").map((item) => item.trim()).filter(Boolean) : fallback;
-}
-
 module.exports = {
   port: Number(process.env.PORT || 3333),
   nodeEnv: process.env.NODE_ENV || "development",
   databaseUrl: process.env.DATABASE_URL,
-  frontendUrls: list(process.env.FRONTEND_URL, ["http://localhost:3000", "http://localhost:5173"]),
+  frontendUrls: originList(process.env.FRONTEND_URL, ["http://localhost:3000", "http://localhost:5173"]),
   publicBaseUrl: process.env.PUBLIC_BASE_URL,
   session: {
     cookieName: process.env.SESSION_COOKIE_NAME || "ontarget.sid",
