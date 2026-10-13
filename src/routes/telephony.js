@@ -40,7 +40,7 @@ router.post("/calls", requireAuth, requireRole("SDR"), requireCsrf, async (reque
       pbxCallId,
       participantId: participant.id,
       status: participant.status || "Dialing",
-      seenParticipant: true,
+      seenParticipant: false,
       startedAt: Date.now(),
     });
     response.status(201).json({ id: call.id, to: destination, status: publicStatus(participant.status), pbxCallId });
@@ -65,13 +65,15 @@ router.get("/calls/:callId/status", requireAuth, requireRole("SDR"), async (requ
         participantId: participant.id,
         status: participant.status,
         seenParticipant: true,
+        missingSince: null,
         ...(status === "connected" && !remembered?.connectedAt ? { connectedAt: Date.now() } : {}),
       });
       return response.json({ status, participantId: participant.id });
     }
 
-    const gracePeriod = Date.now() - call.startedAt.getTime() < 5_000;
-    if (!remembered?.seenParticipant && gracePeriod) return response.json({ status: "dialing", participantId: null });
+    if (callState.shouldWaitForParticipant(call.id, call.startedAt)) {
+      return response.json({ status: publicStatus(remembered?.status || "Dialing"), participantId: null });
+    }
     const durationSec = remembered?.connectedAt ? Math.max(0, Math.round((Date.now() - remembered.connectedAt) / 1_000)) : 0;
     await prisma.call.update({ where: { id: call.id }, data: { endedAt: new Date(), durationSec } });
     callState.forget(call.id);
