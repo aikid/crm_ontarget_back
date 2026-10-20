@@ -10,6 +10,11 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
+const sessionSameSite = process.env.SESSION_COOKIE_SAME_SITE || "lax";
+const sessionSecure = process.env.SESSION_COOKIE_SECURE
+  ? process.env.SESSION_COOKIE_SECURE === "true"
+  : (process.env.NODE_ENV || "development") === "production";
+
 module.exports = {
   port: Number(process.env.PORT || 3333),
   nodeEnv: process.env.NODE_ENV || "development",
@@ -19,10 +24,11 @@ module.exports = {
   session: {
     cookieName: process.env.SESSION_COOKIE_NAME || "ontarget.sid",
     ttlHours: Number(process.env.SESSION_TTL_HOURS || 12),
-    sameSite: process.env.SESSION_COOKIE_SAME_SITE || "lax",
-    secure: process.env.SESSION_COOKIE_SECURE
-      ? process.env.SESSION_COOKIE_SECURE === "true"
-      : (process.env.NODE_ENV || "development") === "production",
+    sameSite: sessionSameSite,
+    secure: sessionSecure,
+    partitioned: process.env.SESSION_COOKIE_PARTITIONED
+      ? process.env.SESSION_COOKIE_PARTITIONED === "true"
+      : sessionSecure && sessionSameSite.toLowerCase() === "none",
   },
   threeCx: {
     pbxUrl: process.env.CX3_PBX_URL || "https://8rtech.my3cx.com.br",

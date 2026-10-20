@@ -2,6 +2,9 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const app = require("../src/app");
 const prisma = require("../src/lib/prisma");
+const { hashPassword } = require("../src/auth/password");
+const env = require("../src/config/env");
+const { sessionCookie } = require("../src/auth/session");
 
 let server;
 let baseUrl;
@@ -41,9 +44,28 @@ async function login(email, fresh = false) {
   });
   assert.equal(response.status, 200);
   const body = await response.json();
-  const session = { body, cookie: response.headers.get("set-cookie").split(";")[0] };
+  const setCookie = response.headers.get("set-cookie");
+  const session = { body, cookie: setCookie.split(";")[0], setCookie };
   loginCache.set(email, session);
   return session;
+}
+
+async function createTestSdr(label) {
+  const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const user = await prisma.user.create({
+    data: {
+      name: `SDR teste ${label}`,
+      email: `sdr-${label}-${suffix}@example.test`,
+      initials: label.slice(0, 2).toUpperCase(),
+      passwordHash: await hashPassword("OnTarget@123"),
+      role: "SDR",
+    },
+  });
+  return { user, session: await login(user.email, true) };
+}
+
+async function cleanupTestSdrs(...users) {
+  await prisma.user.deleteMany({ where: { id: { in: users.map((user) => user.id) } } });
 }
 
 test("rejeita credenciais inválidas e não expõe o hash da senha", async () => {
@@ -60,9 +82,48 @@ test("rejeita credenciais inválidas e não expõe o hash da senha", async () =>
   assert.ok(body.csrfToken);
 });
 
+test("emite cookie particionado na configuração cross-site de produção", () => {
+  const original = { ...env.session };
+  try {
+    Object.assign(env.session, { sameSite: "none", secure: true, partitioned: true });
+    const cookie = sessionCookie("token-de-teste");
+    assert.match(cookie, /SameSite=None/);
+    assert.match(cookie, /Secure/);
+    assert.match(cookie, /Partitioned/);
+    assert.match(cookie, /HttpOnly/);
+  } finally {
+    Object.assign(env.session, original);
+  }
+});
+
 test("exige sessão para acessar a API protegida", async () => {
   const response = await request("/api/session");
   assert.equal(response.status, 401);
+});
+
+test("impede uma aba de operar com sessão pertencente a outro usuário", async () => {
+  const ana = await login("ana@ontarget.com.br");
+  const secondSdr = await createTestSdr("identidade");
+  try {
+    const mismatched = await request("/api/sdr/campaigns", {
+      headers: {
+        Cookie: secondSdr.session.cookie,
+        "X-OnTarget-Session-User": ana.body.user.id,
+      },
+    });
+    assert.equal(mismatched.status, 401);
+    assert.match((await mismatched.json()).error.message, /outro usuário/i);
+
+    const ownSession = await request("/api/sdr/campaigns", {
+      headers: {
+        Cookie: secondSdr.session.cookie,
+        "X-OnTarget-Session-User": secondSdr.user.id,
+      },
+    });
+    assert.equal(ownSession.status, 200);
+  } finally {
+    await cleanupTestSdrs(secondSdr.user);
+  }
 });
 
 test("isola o usuário do portal no cliente vinculado", async () => {
@@ -335,8 +396,10 @@ async function cleanupQueueFixture(fixture) {
 
 test("reserva um único lead sob concorrência e exige o SDR proprietário", async () => {
   const fixture = await createQueueFixture(1);
-  const ana = await login("ana@ontarget.com.br");
-  const lucas = await login("lucas@ontarget.com.br");
+  const firstSdr = await createTestSdr("primeiro");
+  const secondSdr = await createTestSdr("segundo");
+  const ana = firstSdr.session;
+  const lucas = secondSdr.session;
   const payload = JSON.stringify({ campaignId: fixture.campaign.id });
 
   try {
@@ -352,6 +415,12 @@ test("reserva um único lead sob concorrência e exige o SDR proprietário", asy
     const claimed = await responses[winnerIndex].json();
     assert.equal(claimed.id, fixture.leads[0].id);
     assert.equal(claimed.reservation.sdr.id, winner.body.user.id);
+
+    const queueSummary = await request(`/api/sdr/queue/summary?campaignId=${fixture.campaign.id}`, {
+      headers: { Cookie: winner.cookie },
+    });
+    assert.equal(queueSummary.status, 200);
+    assert.deepEqual(await queueSummary.json(), { total: 1, remaining: 1, available: 0, reserved: 1 });
 
     const idempotent = await request("/api/sdr/queue/claim", {
       method: "POST",
@@ -380,12 +449,14 @@ test("reserva um único lead sob concorrência e exige o SDR proprietário", asy
     assert.equal(updated.reservation, null);
   } finally {
     await cleanupQueueFixture(fixture);
+    await cleanupTestSdrs(firstSdr.user, secondSdr.user);
   }
 });
 
 test("limita três tentativas e mantém retornos fora da fila automática", async () => {
   const fixture = await createQueueFixture(2);
-  const ana = await login("ana@ontarget.com.br");
+  const testSdr = await createTestSdr("tentativas");
+  const ana = testSdr.session;
   const headers = { Cookie: ana.cookie, "X-CSRF-Token": ana.body.csrfToken };
   const claimBody = JSON.stringify({ campaignId: fixture.campaign.id });
 
@@ -437,6 +508,7 @@ test("limita três tentativas e mantém retornos fora da fila automática", asyn
     assert.equal((await qualified.json()).attempts, 2);
   } finally {
     await cleanupQueueFixture(fixture);
+    await cleanupTestSdrs(testSdr.user);
   }
 });
 

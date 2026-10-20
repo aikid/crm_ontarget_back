@@ -55,11 +55,13 @@ separada por vírgula:
 FRONTEND_URL=https://crmontarget-git-main-aikids-projects.vercel.app,https://seu-dominio-de-producao.com.br
 SESSION_COOKIE_SAME_SITE=none
 SESSION_COOKIE_SECURE=true
+SESSION_COOKIE_PARTITIONED=true
 ```
 
-`SameSite=None` e `Secure=true` são necessários para o navegador enviar o
-cookie de sessão entre os domínios `vercel.app` e `onrender.com`. Não use `*`
-como origem porque a API recebe cookies com `credentials: include`.
+`SameSite=None`, `Secure=true` e `Partitioned=true` são necessários para o
+navegador enviar o cookie de sessão entre os domínios `vercel.app` e
+`onrender.com`, inclusive em contextos que bloqueiam cookies de terceiros.
+Não use `*` como origem porque a API recebe cookies com `credentials: include`.
 
 ## Autenticação e perfis
 

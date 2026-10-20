@@ -29,6 +29,7 @@ function cookieOptions(maxAgeSeconds) {
     "HttpOnly",
     `SameSite=${sameSite[0].toUpperCase()}${sameSite.slice(1)}`,
     ...(env.session.secure ? ["Secure"] : []),
+    ...(env.session.partitioned ? ["Partitioned"] : []),
     `Max-Age=${maxAgeSeconds}`,
   ];
 }

@@ -92,6 +92,11 @@ function serializeLead(lead) {
       detail: attempt.notes || "Resultado registrado",
       result: outcomeLabels[attempt.outcome] || attempt.outcome,
       durationSec: null,
+      sdr: attempt.sdr ? {
+        id: attempt.sdr.id,
+        name: attempt.sdr.name,
+        initials: attempt.sdr.initials,
+      } : null,
     })),
     callback: lead.callback ? {
       scheduledAt: lead.callback.scheduledAt,

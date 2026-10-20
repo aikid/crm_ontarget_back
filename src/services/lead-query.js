@@ -4,7 +4,10 @@ const leadInclude = {
   store: { select: { id: true, name: true, shortName: true } },
   campaign: { select: { id: true, name: true } },
   calls: { orderBy: { startedAt: "asc" } },
-  attemptRecords: { orderBy: { sequence: "asc" } },
+  attemptRecords: {
+    orderBy: { sequence: "asc" },
+    include: { sdr: { select: { id: true, name: true, initials: true } } },
+  },
   reservedBy: { select: { id: true, name: true, initials: true } },
   callback: true,
   appointment: true,

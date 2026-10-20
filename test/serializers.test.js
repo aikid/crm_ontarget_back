@@ -20,7 +20,11 @@ test("serializeLead mantém labels e campos esperados pelo frontend", () => {
     name: "João Pereira", phone: "+5561999998877", vehicle: "T-Cross", origin: "Meta Ads",
     reason: null, status: "CONTACTED", attempts: 1, lastContact: new Date("2026-08-09T21:04:00Z"),
     createdAt: new Date("2026-08-09T12:00:00Z"), store: { id: "store", shortName: "SIA" },
-    campaign: { id: "campaign", name: "Campanha" }, calls: [], attemptRecords: [], callback: null,
+    campaign: { id: "campaign", name: "Campanha" }, calls: [], attemptRecords: [{
+      id: "attempt", sequence: 1, outcome: "CONTACTED", notes: "Cliente atendido",
+      finishedAt: new Date("2026-08-09T21:04:00Z"),
+      sdr: { id: "sdr", name: "Ana Souza", initials: "AS" },
+    }], callback: null,
     reservedById: null, reservedBy: null,
     appointment: { date: new Date("2026-08-11T15:00:00Z"), period: "Tarde", seller: null, notes: null },
     qualification: null, audit: { status: "confirmed", confidence: 96, evidence: "Confirmado", auditedAt: new Date("2026-08-09T21:09:00Z") },
@@ -30,4 +34,5 @@ test("serializeLead mantém labels e campos esperados pelo frontend", () => {
   assert.equal(result.status, "Contato realizado");
   assert.equal(result.audit.status, "Confirmado");
   assert.equal(result.appointment.period, "Tarde");
+  assert.deepEqual(result.history[0].sdr, { id: "sdr", name: "Ana Souza", initials: "AS" });
 });

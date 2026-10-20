@@ -41,6 +41,14 @@ async function assertActiveCampaign(auth, campaignId) {
   if (!campaign) throw new HttpError(409, "A campanha, a loja ou o cliente não está ativo para operação.");
 }
 
+async function serializeOwnedLead(leadId, userId) {
+  const lead = await findLead(leadId);
+  if (!lead || lead.reservedById !== userId || !lead.reservedUntil || lead.reservedUntil <= new Date()) {
+    throw new HttpError(409, "A reserva do lead não pertence ao SDR autenticado.");
+  }
+  return serializeLead(lead);
+}
+
 function saoPauloDateKey() {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Sao_Paulo",
@@ -63,19 +71,45 @@ router.post("/queue/claim", requireCsrf, async (request, response) => {
   const campaignId = required(request.body.campaignId, "campaignId");
   await assertActiveCampaign(request.auth, campaignId);
   const reserved = await claimNextLead(prisma, request.auth.user.id, campaignId);
-  response.json(serializeLead(await findLead(reserved.id)));
+  response.json(await serializeOwnedLead(reserved.id, request.auth.user.id));
 });
 
 router.post("/queue/renew", requireCsrf, async (request, response) => {
   const leadId = required(request.body.leadId, "leadId");
   await renewReservation(prisma, request.auth.user.id, leadId);
-  response.json(serializeLead(await findLead(leadId)));
+  response.json(await serializeOwnedLead(leadId, request.auth.user.id));
 });
 
 router.post("/queue/release", requireCsrf, async (request, response) => {
   const leadId = required(request.body.leadId, "leadId");
   await releaseReservation(prisma, request.auth.user.id, leadId);
   response.status(204).end();
+});
+
+router.get("/queue/summary", async (request, response) => {
+  const campaignId = required(request.query.campaignId, "campaignId");
+  await assertActiveCampaign(request.auth, campaignId);
+  const now = new Date();
+  const eligible = {
+    campaignId,
+    status: "PENDING",
+    invalidPhone: false,
+    attempts: { lt: 3 },
+  };
+  const [total, remaining, available, reserved] = await Promise.all([
+    prisma.lead.count({ where: { campaignId } }),
+    prisma.lead.count({ where: eligible }),
+    prisma.lead.count({
+      where: {
+        ...eligible,
+        OR: [{ reservedUntil: null }, { reservedUntil: { lte: now } }],
+      },
+    }),
+    prisma.lead.count({
+      where: { campaignId, reservedUntil: { gt: now } },
+    }),
+  ]);
+  response.json({ total, remaining, available, reserved });
 });
 
 router.get("/callbacks/today", async (request, response) => {
@@ -105,7 +139,7 @@ router.get("/callbacks/today", async (request, response) => {
 
 router.post("/callbacks/:leadId/claim", requireCsrf, async (request, response) => {
   const reserved = await claimCallback(prisma, request.auth.user.id, request.params.leadId);
-  response.json(serializeLead(await findLead(reserved.id)));
+  response.json(await serializeOwnedLead(reserved.id, request.auth.user.id));
 });
 
 router.get("/:sdrId/summary", async (request, response) => {

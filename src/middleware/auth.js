@@ -23,6 +23,10 @@ async function loadAuth(request) {
 async function requireAuth(request, _response, next) {
   const auth = await loadAuth(request);
   if (!auth) throw new HttpError(401, "Sessão ausente, expirada ou inválida.");
+  const expectedUserId = request.header("x-ontarget-session-user");
+  if (expectedUserId && expectedUserId !== auth.user.id) {
+    throw new HttpError(401, "A sessão ativa pertence a outro usuário. Entre novamente para continuar.");
+  }
   request.auth = auth;
   next();
 }
