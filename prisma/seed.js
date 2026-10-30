@@ -104,7 +104,7 @@ async function main() {
         reason: "Campanha Feirão Agosto",
         lastContact: lead.lastContact ? at(lead.lastContact) : null,
         createdAt: at("2026-08-09T12:00:00Z"),
-        calls: { create: calls.map(([startedAt, result, detail, recordingUrl]) => ({ sdrId: "user-sdr-ana", startedAt: at(startedAt), endedAt: at(startedAt), result, detail, recordingUrl, durationSec: recordingUrl ? 98 : 0 })) },
+        calls: { create: calls.map(([startedAt, result, detail, recordingUrl]) => ({ provider: "legacy", status: "ENDED", sdrId: "user-sdr-ana", startedAt: at(startedAt), endedAt: at(startedAt), result, detail, recordingUrl, durationSec: recordingUrl ? 98 : 0 })) },
         attemptRecords: { create: calls.map(([startedAt, result, detail], index) => ({ sdrId: "user-sdr-ana", sequence: index + 1, outcome: attemptOutcome[result], notes: detail, startedAt: at(startedAt), finishedAt: at(startedAt), createdAt: at(startedAt) })) },
         ...(appointment ? { appointment: { create: { ...appointment, date: at(appointment.date) } } } : {}),
         ...(qualification ? { qualification: { create: qualification } } : {}),

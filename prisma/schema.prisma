@@ -98,6 +98,29 @@ enum AttemptOutcome {
   CALLBACK
 }
 
+enum CallStatus {
+  READY
+  DIALING
+  RINGING
+  CONNECTED
+  RECONCILING
+  ENDED
+  FAILED
+  CANCELED
+  BUSY
+  NO_ANSWER
+  REJECTED
+}
+
+enum CallRecordingStatus {
+  PENDING
+  RECORDING
+  STORED_LOCAL
+  UPLOADING
+  STORED
+  FAILED
+}
+
 model AuthSession {
   id         String   @id @default(cuid())
   userId     String
@@ -277,23 +300,83 @@ model ImportError {
 }
 
 model Call {
-  id           String    @id @default(cuid())
-  leadId       String
-  sdrId        String?
-  provider     String    @default("3cx")
-  providerSid  String?
-  result       String?
-  detail       String?
-  durationSec  Int?
-  recordingUrl String?
-  startedAt    DateTime  @default(now())
-  endedAt      DateTime?
-  createdAt    DateTime  @default(now())
-  lead         Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  sdr          User?     @relation(fields: [sdrId], references: [id])
+  id                 String         @id @default(cuid())
+  leadId             String
+  sdrId              String?
+  provider           String         @default("asterisk")
+  providerSid        String?
+  idempotencyKey     String?
+  status             CallStatus     @default(READY)
+  destinationE164    String?
+  destinationMasked  String?
+  result             String?
+  detail             String?
+  disconnectReason   String?
+  hangupInitiator    String?
+  sipFinalCode       Int?
+  q850Cause          Int?
+  ariWebChannelId    String?
+  ariRemoteChannelId String?
+  ariBridgeId        String?
+  durationSec        Int?
+  recordingUrl       String?
+  requestedAt        DateTime       @default(now())
+  startedAt          DateTime       @default(now())
+  dialingAt          DateTime?
+  ringingAt          DateTime?
+  answeredAt         DateTime?
+  endedAt            DateTime?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  lead               Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  sdr                User?          @relation(fields: [sdrId], references: [id])
+  events             CallEvent[]
+  recording          CallRecording?
 
+  @@unique([sdrId, idempotencyKey])
   @@index([leadId, startedAt])
   @@index([sdrId, startedAt])
+  @@index([status, requestedAt])
+}
+
+model CallEvent {
+  id         String      @id @default(cuid())
+  callId     String
+  seq        Int
+  dedupeKey  String?
+  type       String
+  status     CallStatus?
+  source     String
+  rawType    String?
+  payload    Json?
+  occurredAt DateTime    @default(now())
+  createdAt  DateTime    @default(now())
+  call       Call        @relation(fields: [callId], references: [id], onDelete: Cascade)
+
+  @@unique([callId, seq])
+  @@unique([callId, dedupeKey])
+  @@index([callId, occurredAt])
+}
+
+model CallRecording {
+  id                   String              @id @default(cuid())
+  callId               String              @unique
+  name                 String              @unique
+  status               CallRecordingStatus @default(PENDING)
+  format               String              @default("wav")
+  storageBucket        String?
+  storageKey           String?
+  sha256               String?
+  sizeBytes            BigInt?
+  recordedAt           DateTime?
+  uploadedAt           DateTime?
+  retentionDeleteAfter DateTime?
+  lastError            String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  call                 Call                @relation(fields: [callId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
 }
 
 model Callback {
