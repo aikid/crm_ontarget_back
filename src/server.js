@@ -4,6 +4,11 @@ const prisma = require("./lib/prisma");
 const { attachTelephonyWebSocket } = require("./services/telephony-websocket");
 const { AriEventStream } = require("./services/asterisk/ari-event-stream");
 const asteriskCallEngine = require("./services/asterisk/call-engine-instance");
+const { Prisma } = require("@prisma/client");
+
+if (!Prisma.CallScalarFieldEnum?.status) {
+  throw new Error("Prisma Client desatualizado: execute `prisma generate` antes de iniciar a API.");
+}
 
 const server = app.listen(env.port, () => {
   console.log(`OnTarget API disponível em http://localhost:${env.port}`);

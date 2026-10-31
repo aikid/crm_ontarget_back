@@ -5,6 +5,9 @@
   "main": "src/server.js",
   "scripts": {
     "dev": "node --watch src/server.js",
+    "postinstall": "prisma generate",
+    "build": "prisma generate",
+    "render-build": "prisma generate && prisma migrate deploy",
     "tunnel": "ngrok http 3333",
     "start": "node src/server.js",
     "test": "node --test",
@@ -24,7 +27,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@prisma/client": "^6.16.1",
+    "@prisma/client": "6.19.3",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "csv-parse": "^7.0.3",
@@ -34,11 +37,9 @@
     "express-rate-limit": "^8.7.0",
     "helmet": "^8.1.0",
     "multer": "^2.4.0",
+    "prisma": "6.19.3",
     "ws": "^8.22.0",
     "zod": "^4.6.5"
-  },
-  "devDependencies": {
-    "prisma": "^6.16.1"
   },
   "overrides": {
     "exceljs": {
