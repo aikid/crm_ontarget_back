@@ -45,7 +45,7 @@ function optionalNotes(value) {
   return notes || null;
 }
 
-router.get("/:leadId", async (request, response) => {
+router.get("/:leadId", requireRole("GESTOR", "CLIENT"), async (request, response) => {
   const lead = await leadForAuth(request.auth, request.params.leadId, leadInclude);
   response.json(serializeLead(lead));
 });

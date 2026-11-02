@@ -160,6 +160,21 @@ test("aplica papel e identidade do SDR no servidor", async () => {
   });
   assert.equal(managerDashboard.status, 403);
 
+  const managerCatalog = await request("/api/clients/BRASAL/campaigns", {
+    headers: { Cookie: cookie },
+  });
+  assert.equal(managerCatalog.status, 403);
+
+  const campaignDashboard = await request("/api/campaigns/FEIRAO-VW-AGO/dashboard", {
+    headers: { Cookie: cookie },
+  });
+  assert.equal(campaignDashboard.status, 403);
+
+  const unrestrictedLead = await request("/api/leads/lead-001", {
+    headers: { Cookie: cookie },
+  });
+  assert.equal(unrestrictedLead.status, 403);
+
   const anotherSdr = await request("/api/sdr/user-sdr-lucas/summary", {
     headers: { Cookie: cookie },
   });

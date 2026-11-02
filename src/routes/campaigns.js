@@ -7,6 +7,7 @@ const { campaignForAuth } = require("../auth/access");
 const { requireRole } = require("../middleware/auth");
 
 const router = express.Router();
+router.use(requireRole("GESTOR", "CLIENT"));
 
 router.get("/:campaignId/dashboard", async (request, response) => {
   await campaignForAuth(request.auth, request.params.campaignId);

@@ -3,6 +3,7 @@ const prisma = require("../lib/prisma");
 const { assertClientAccess } = require("../auth/access");
 const { publicUser } = require("../auth/user");
 const { serializeCampaign } = require("../services/serializers");
+const { requireRole } = require("../middleware/auth");
 
 const router = express.Router();
 
@@ -14,7 +15,7 @@ router.get("/session", (request, response) => {
   });
 });
 
-router.get("/clients/:clientId/campaigns", async (request, response) => {
+router.get("/clients/:clientId/campaigns", requireRole("GESTOR", "CLIENT"), async (request, response) => {
   assertClientAccess(request.auth, request.params.clientId);
   const campaigns = await prisma.campaign.findMany({
     where: {
@@ -26,7 +27,7 @@ router.get("/clients/:clientId/campaigns", async (request, response) => {
   response.json({ data: campaigns.map(serializeCampaign) });
 });
 
-router.get("/clients/:clientId/stores", async (request, response) => {
+router.get("/clients/:clientId/stores", requireRole("GESTOR", "CLIENT"), async (request, response) => {
   assertClientAccess(request.auth, request.params.clientId);
   const stores = await prisma.store.findMany({
     where: {
