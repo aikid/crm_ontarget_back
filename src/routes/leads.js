@@ -48,6 +48,14 @@ function optionalNotes(value) {
   return notes || null;
 }
 
+function optionalVehicle(value) {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value !== "string") throw new HttpError(400, "vehicle deve ser um texto.");
+  const vehicle = value.trim();
+  if (vehicle.length > 120) throw new HttpError(400, "O veículo de interesse deve ter no máximo 120 caracteres.");
+  return vehicle || undefined;
+}
+
 router.get("/:leadId", requireRole("GESTOR", "CLIENT"), async (request, response) => {
   const lead = await leadForAuth(request.auth, request.params.leadId, leadInclude);
   response.json(serializeLead(lead));
@@ -57,6 +65,7 @@ router.post("/:leadId/outcomes", requireRole("SDR"), requireCsrf, async (request
   const outcome = required(request.body.outcome || request.body.result, "outcome");
   if (!outcomes.has(outcome)) throw new HttpError(400, "Resultado de contato inválido.");
   const notes = optionalNotes(request.body.notes);
+  const vehicle = optionalVehicle(request.body.vehicle);
   const leadId = request.params.leadId;
   await leadForAuth(request.auth, leadId);
 
@@ -106,6 +115,7 @@ router.post("/:leadId/outcomes", requireRole("SDR"), requireCsrf, async (request
         attempts: sequence,
         lastContact: now,
         invalidPhone: outcome === "INVALID_NUMBER",
+        ...(vehicle ? { vehicle } : {}),
         reservedById: null,
         reservedAt: null,
         reservedUntil: null,

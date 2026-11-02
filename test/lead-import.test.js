@@ -84,5 +84,8 @@ test("aceita o modelo amplo da OnTarget e aplica os fallbacks definidos", () => 
     motivo: "Campanha de novembro",
   });
   assert.equal(rows[1].data.veiculo, "T-Cross");
-  assert.equal(validateRows(rows).candidates.length, 2);
+  const validated = validateRows(rows);
+  assert.equal(validated.candidates.length, 2);
+  assert.equal(validated.candidates[0].vehicle, null);
+  assert.equal(validated.candidates[1].vehicle, null);
 });

@@ -560,12 +560,13 @@ test("limita três tentativas e mantém retornos fora da fila automática", asyn
     const explicitClaim = await request(`/api/sdr/callbacks/${callbackLead.id}/claim`, { method: "POST", headers });
     assert.equal(explicitClaim.status, 200);
     const directed = await request(`/api/leads/${callbackLead.id}/outcomes`, {
-      method: "POST", headers, body: JSON.stringify({ outcome: "DIRECTED" }),
+      method: "POST", headers, body: JSON.stringify({ outcome: "DIRECTED", vehicle: "T-Cross Comfortline" }),
     });
     assert.equal(directed.status, 201);
     const directedLead = await directed.json();
     assert.equal(directedLead.attempts, 2);
     assert.equal(directedLead.statusCode, "DIRECTED");
+    assert.equal(directedLead.vehicle, "T-Cross Comfortline");
     assert.equal(directedLead.qualification.type, "Direcionado");
   } finally {
     await cleanupQueueFixture(fixture);

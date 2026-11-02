@@ -163,7 +163,6 @@ function validateRows(rows) {
       if (rawData.nome.length < 2) throw new Error("Nome deve ter ao menos 2 caracteres.");
       const official = row.format === "OFFICIAL";
       if (official && !rawData.acao) throw new Error("Ação é obrigatória.");
-      if (!official && !rawData.veiculo) throw new Error("Veículo é obrigatório no modelo anterior.");
       if (!official && !rawData.origem) throw new Error("Origem é obrigatória no modelo anterior.");
       if (rawData.nome.length > 120 || rawData.acao.length > 160 || rawData.veiculo.length > 120 || rawData.origem.length > 120 || rawData.motivo.length > 500) {
         throw new Error("Uma ou mais informações excedem o tamanho permitido.");
@@ -176,7 +175,8 @@ function validateRows(rows) {
         name: rawData.nome,
         action: rawData.acao || null,
         actionDate,
-        vehicle: rawData.veiculo || null,
+        // O veículo de interesse é informado pelo SDR após o contato, nunca pela importação.
+        vehicle: null,
         origin: rawData.origem,
         reason: rawData.motivo || null,
         rawData,
