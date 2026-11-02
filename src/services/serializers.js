@@ -75,6 +75,8 @@ function serializeLead(lead) {
     initials: lead.name.split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase(),
     phone: phone(lead.phone),
     phoneE164: lead.phone,
+    action: lead.action,
+    actionDate: date(lead.actionDate),
     vehicle: lead.vehicle,
     origin: lead.origin,
     reason: lead.reason,

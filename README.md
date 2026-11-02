@@ -105,17 +105,17 @@ Somente Gestores podem importar. Há duas origens disponíveis:
 - `POST /api/admin/imports`: recebe `multipart/form-data` com `clientId`, `storeId`, `campaignId` e o arquivo `file`.
 - `POST /api/admin/imports/google-sheets`: recebe JSON com `clientId`, `storeId`, `campaignId`, `spreadsheetUrl` e, opcionalmente, `sheetName`.
 
-Todas as origens usam as mesmas colunas fixas:
+Todas as origens usam o mesmo modelo oficial:
 
 | Coluna | Regra |
 |---|---|
-| `nome` | Obrigatória |
-| `telefone` | Obrigatória; normalizada para E.164 |
-| `veículo` | Obrigatória |
-| `origem` | Obrigatória |
-| `motivo` | Opcional |
+| `Ação` | Obrigatória; identifica o evento, loja ou concessionária |
+| `Numero` | Obrigatória; DDD + número, normalizado para E.164 |
+| `Nome Cliente` | Obrigatória |
+| `ORIGEM` | Coluna obrigatória; conteúdo opcional |
+| `DIA DA AÇÃO` | Obrigatória; data válida no formato `dd/mm/aaaa` |
 
-O modelo operacional amplo da OnTarget também é aceito com os seguintes aliases:
+Para preservar lotes anteriores, o modelo legado também continua aceito com os seguintes aliases:
 
 | Coluna do modelo amplo | Campo importado |
 |---|---|
@@ -126,7 +126,7 @@ O modelo operacional amplo da OnTarget também é aceito com os seguintes aliase
 | `ORIGEM BASE` | `origem` |
 | `ORIGEM/BASE/MOTIVO` | `motivo` |
 
-As demais colunas do modelo amplo são ignoradas nesta etapa da V1.
+No modelo legado, veículo e origem continuam obrigatórios. Os novos leads armazenam Ação e Dia da ação em campos próprios; veículo é opcional.
 
 - Limite de 10 MB e 10.000 linhas por lote.
 - Telefones repetidos são aceitos e geram leads distintos.
@@ -173,7 +173,7 @@ Somente Gestores podem acessar os endpoints operacionais globais. Os indicadores
 
 O dashboard aceita `dateFrom`, `dateTo`, `clientId`, `storeId`, `campaignId` e `sdrId`. O período máximo é de 92 dias.
 
-A consulta de leads aceita `search`, `clientId`, `storeId`, `campaignId`, `status`, `sdrId`, `page` e `pageSize`. A busca considera nome, telefone, veículo e origem; `pageSize` é limitado a 50 registros.
+A consulta de leads aceita `search`, `clientId`, `storeId`, `campaignId`, `status`, `sdrId`, `page` e `pageSize`. A busca considera nome, telefone, ação, veículo e origem; `pageSize` é limitado a 50 registros.
 
 | Fluxo da interface | Endpoint |
 |---|---|

@@ -350,11 +350,11 @@ test("importa telefones repetidos e rejeita somente linhas inválidas", async ()
   form.set("storeId", "BRASAL-SIA");
   form.set("campaignId", "FEIRAO-VW-AGO");
   form.set("file", new Blob([[
-    "nome;telefone;veículo;origem;motivo",
-    "Lead Importado;(61) 99999-7770;Nivus;Site;Teste",
-    "Telefone Ruim;123;Polo;Meta;Teste",
-    "Lead Existente;+5561999998877;T-Cross;Site;Duplicado no banco",
-    "Lead Duplicado;+5561999997770;Nivus;Site;Duplicado no arquivo",
+    "Ação;Numero;Nome Cliente;ORIGEM;DIA DA AÇÃO",
+    "Feirão / Loja SIA;(61) 99999-7770;Lead Importado;;10/11/2026",
+    "Evento inválido;123;Telefone Ruim;Meta;31/02/2026",
+    "Feirão / Loja SIA;+5561999998877;Lead Existente;Site;11/11/2026",
+    "Feirão / Loja SIA;+5561999997770;Lead Duplicado;Site;12/11/2026",
   ].join("\n")], { type: "text/csv" }), "leads.csv");
 
   let batchId;
@@ -378,6 +378,10 @@ test("importa telefones repetidos e rejeita somente linhas inválidas", async ()
     assert.equal(leads.length, 3);
     assert.deepEqual(leads.map((lead) => lead.importRow), [2, 4, 5]);
     assert.equal(leads.filter((lead) => lead.phone === "+5561999997770").length, 2);
+    assert.equal(leads[0].action, "Feirão / Loja SIA");
+    assert.equal(leads[0].origin, "");
+    assert.equal(leads[0].vehicle, null);
+    assert.equal(leads[0].actionDate.toISOString(), "2026-11-10T15:00:00.000Z");
   } finally {
     if (batchId) {
       const imported = await prisma.lead.count({ where: { importBatchId: batchId } });

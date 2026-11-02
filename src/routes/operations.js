@@ -64,6 +64,7 @@ function leadFilter(query) {
     where.OR = [
       { name: { contains: search, mode: "insensitive" } },
       { phone: { contains: search } },
+      { action: { contains: search, mode: "insensitive" } },
       { vehicle: { contains: search, mode: "insensitive" } },
       { origin: { contains: search, mode: "insensitive" } },
     ];

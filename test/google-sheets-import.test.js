@@ -22,13 +22,14 @@ test("interpreta a credencial JSON da conta de serviço sem expor a chave", () =
 
 test("Google Sheets reaproveita as mesmas colunas e validações dos arquivos", () => {
   const rows = rowsFromMatrix([
-    ["nome", "telefone", "veículo", "origem", "motivo"],
-    ["Lead Sheets", "11947341276", "Nivus", "Google Sheets", "Campanha"],
-    ["Inválido", "123", "Polo", "Google Sheets", ""],
+    ["Ação", "Numero", "Nome Cliente", "ORIGEM", "DIA DA AÇÃO"],
+    ["Evento Sheets / Loja Centro", "11947341276", "Lead Sheets", "Google Sheets", "10/11/2026"],
+    ["Evento inválido", "123", "Inválido", "", "31/02/2026"],
   ]);
   const result = validateRows(rows);
   assert.equal(result.candidates.length, 1);
   assert.equal(result.candidates[0].phone, "+5511947341276");
+  assert.equal(result.candidates[0].action, "Evento Sheets / Loja Centro");
   assert.equal(result.errors.length, 1);
   assert.equal(result.errors[0].rowNumber, 3);
 });

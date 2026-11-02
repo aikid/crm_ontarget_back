@@ -213,7 +213,9 @@ model Lead {
   storeId        String
   name           String
   phone          String
-  vehicle        String
+  action         String?
+  actionDate     DateTime?
+  vehicle        String?
   origin         String
   reason         String?
   status         LeadStatus     @default(PENDING)

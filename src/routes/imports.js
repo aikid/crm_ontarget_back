@@ -97,6 +97,8 @@ async function importRows({ campaign, parsed, fileName, uploadedById }) {
           campaignId: campaign.id,
           name: row.name,
           phone: row.phone,
+          action: row.action,
+          actionDate: row.actionDate,
           vehicle: row.vehicle,
           origin: row.origin,
           reason: row.reason,

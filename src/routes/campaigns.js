@@ -57,8 +57,8 @@ router.get("/:campaignId/leads.csv", requireRole("GESTOR"), async (request, resp
   });
   const escape = (value) => `"${String(value ?? "").replaceAll('"', '""')}"`;
   const rows = [
-    ["Lead", "Telefone", "Veículo", "Origem", "Loja", "Status", "Tentativas", "Último contato"],
-    ...leads.map((lead) => [lead.name, lead.phone, lead.vehicle, lead.origin, lead.store.shortName, lead.status, lead.attempts, lead.lastContact?.toISOString()]),
+    ["Lead", "Telefone", "Ação", "Dia da ação", "Origem", "Veículo", "Loja", "Status", "Tentativas", "Último contato"],
+    ...leads.map((lead) => [lead.name, lead.phone, lead.action, lead.actionDate?.toISOString(), lead.origin, lead.vehicle, lead.store.shortName, lead.status, lead.attempts, lead.lastContact?.toISOString()]),
   ];
   response.setHeader("Content-Type", "text/csv; charset=utf-8");
   response.setHeader("Content-Disposition", `attachment; filename="${request.params.campaignId}-resultados.csv"`);

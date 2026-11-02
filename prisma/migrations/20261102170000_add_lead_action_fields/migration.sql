@@ -1,0 +1,4 @@
+ALTER TABLE "Lead"
+  ADD COLUMN "action" TEXT,
+  ADD COLUMN "actionDate" TIMESTAMP(3),
+  ALTER COLUMN "vehicle" DROP NOT NULL;

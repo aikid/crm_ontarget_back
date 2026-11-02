@@ -4,13 +4,16 @@ const ExcelJS = require("exceljs");
 const { HttpError } = require("../lib/http-error");
 
 const FIELD_ALIASES = {
-  nome: ["nome"],
-  telefone: ["telefone"],
+  acao: ["acao"],
+  telefone: ["numero", "telefone"],
+  nome: ["nome_cliente", "nome"],
+  dataAcao: ["dia_da_acao"],
   veiculo: ["veiculo", "veiculo_interesse", "carro"],
   origem: ["origem", "origem_base"],
   motivo: ["motivo", "origem_base_motivo"],
 };
-const REQUIRED_HEADERS = ["nome", "telefone", "veiculo", "origem"];
+const OFFICIAL_REQUIRED_HEADERS = ["acao", "telefone", "nome", "origem", "dataAcao"];
+const LEGACY_REQUIRED_HEADERS = ["nome", "telefone", "veiculo", "origem"];
 const MAX_ROWS = 10_000;
 
 function normalizeHeader(value) {
@@ -25,7 +28,11 @@ function normalizeHeader(value) {
 
 function cellText(value) {
   if (value === null || value === undefined) return "";
-  if (value instanceof Date) return value.toISOString();
+  if (value instanceof Date) {
+    const day = String(value.getUTCDate()).padStart(2, "0");
+    const month = String(value.getUTCMonth() + 1).padStart(2, "0");
+    return `${day}/${month}/${value.getUTCFullYear()}`;
+  }
   if (typeof value === "object") {
     if ("result" in value) return cellText(value.result);
     if (Array.isArray(value.richText)) return value.richText.map((part) => part.text).join("");
@@ -35,10 +42,10 @@ function cellText(value) {
 }
 
 function assertHeaders(headers) {
-  const missing = REQUIRED_HEADERS.filter((field) => !FIELD_ALIASES[field].some((header) => headers.includes(header)));
-  if (missing.length) {
-    throw new HttpError(400, `O arquivo não contém as colunas obrigatórias: ${missing.join(", ")}.`);
-  }
+  const hasHeaders = (fields) => fields.every((field) => FIELD_ALIASES[field].some((header) => headers.includes(header)));
+  if (hasHeaders(OFFICIAL_REQUIRED_HEADERS)) return "OFFICIAL";
+  if (hasHeaders(LEGACY_REQUIRED_HEADERS)) return "LEGACY";
+  throw new HttpError(400, "O arquivo deve conter as colunas: Ação, Numero, Nome Cliente, ORIGEM e DIA DA AÇÃO.");
 }
 
 function canonicalizeRowData(data) {
@@ -51,14 +58,14 @@ function canonicalizeRowData(data) {
 function rowsFromMatrix(matrix) {
   if (!matrix.length) throw new HttpError(400, "O arquivo está vazio.");
   const headers = matrix[0].map(normalizeHeader);
-  assertHeaders(headers);
+  const format = assertHeaders(headers);
   const rows = matrix.slice(1)
     .map((values, index) => {
       const sourceData = Object.fromEntries(headers.map((header, column) => [header, cellText(values[column])]));
-      return { rowNumber: index + 2, sourceData, data: canonicalizeRowData(sourceData) };
+      return { rowNumber: index + 2, sourceData, data: canonicalizeRowData(sourceData), format };
     })
     .filter((row) => Object.values(row.sourceData).some(Boolean))
-    .map(({ rowNumber, data }) => ({ rowNumber, data }));
+    .map(({ rowNumber, data, format: rowFormat }) => ({ rowNumber, data, format: rowFormat }));
   if (!rows.length) throw new HttpError(400, "O arquivo não possui linhas de leads.");
   if (rows.length > MAX_ROWS) throw new HttpError(400, `O arquivo excede o limite de ${MAX_ROWS} leads por importação.`);
   return rows;
@@ -124,27 +131,56 @@ function normalizePhone(value) {
   return normalized;
 }
 
+function parseActionDate(value) {
+  const match = String(value || "").trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) throw new Error("Dia da ação inválido. Use o formato dd/mm/aaaa.");
+  const [, day, month, year] = match;
+  const parsed = new Date(`${year}-${month}-${day}T12:00:00-03:00`);
+  if (
+    Number.isNaN(parsed.getTime())
+    || parsed.getUTCFullYear() !== Number(year)
+    || parsed.getUTCMonth() + 1 !== Number(month)
+    || parsed.getUTCDate() !== Number(day)
+  ) throw new Error("Dia da ação inválido. Use uma data existente no formato dd/mm/aaaa.");
+  return parsed;
+}
+
 function validateRows(rows) {
   const candidates = [];
   const errors = [];
 
   for (const row of rows) {
     const rawData = {
+      acao: row.data.acao || "",
       nome: row.data.nome || "",
       telefone: row.data.telefone || "",
+      dataAcao: row.data.dataAcao || "",
       veiculo: row.data.veiculo || "",
       origem: row.data.origem || "",
       motivo: row.data.motivo || "",
     };
     try {
       if (rawData.nome.length < 2) throw new Error("Nome deve ter ao menos 2 caracteres.");
-      if (!rawData.veiculo) throw new Error("Veículo é obrigatório.");
-      if (!rawData.origem) throw new Error("Origem é obrigatória.");
-      if (rawData.nome.length > 120 || rawData.veiculo.length > 120 || rawData.origem.length > 120 || rawData.motivo.length > 500) {
+      const official = row.format === "OFFICIAL";
+      if (official && !rawData.acao) throw new Error("Ação é obrigatória.");
+      if (!official && !rawData.veiculo) throw new Error("Veículo é obrigatório no modelo anterior.");
+      if (!official && !rawData.origem) throw new Error("Origem é obrigatória no modelo anterior.");
+      if (rawData.nome.length > 120 || rawData.acao.length > 160 || rawData.veiculo.length > 120 || rawData.origem.length > 120 || rawData.motivo.length > 500) {
         throw new Error("Uma ou mais informações excedem o tamanho permitido.");
       }
       const phone = normalizePhone(rawData.telefone);
-      candidates.push({ rowNumber: row.rowNumber, phone, name: rawData.nome, vehicle: rawData.veiculo, origin: rawData.origem, reason: rawData.motivo || null, rawData });
+      const actionDate = official ? parseActionDate(rawData.dataAcao) : null;
+      candidates.push({
+        rowNumber: row.rowNumber,
+        phone,
+        name: rawData.nome,
+        action: rawData.acao || null,
+        actionDate,
+        vehicle: rawData.veiculo || null,
+        origin: rawData.origem,
+        reason: rawData.motivo || null,
+        rawData,
+      });
     } catch (error) {
       errors.push({ rowNumber: row.rowNumber, code: "INVALID_ROW", message: error.message, rawData });
     }
@@ -152,4 +188,4 @@ function validateRows(rows) {
   return { candidates, errors };
 }
 
-module.exports = { FIELD_ALIASES, MAX_ROWS, normalizeHeader, normalizePhone, parseLeadFile, parseCsv, parseXlsx, rowsFromMatrix, validateRows };
+module.exports = { FIELD_ALIASES, MAX_ROWS, normalizeHeader, normalizePhone, parseActionDate, parseLeadFile, parseCsv, parseXlsx, rowsFromMatrix, validateRows };
