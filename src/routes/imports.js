@@ -5,6 +5,7 @@ const prisma = require("../lib/prisma");
 const { HttpError } = require("../lib/http-error");
 const { requireCsrf, requireRole } = require("../middleware/auth");
 const { parseLeadFile, validateRows } = require("../services/lead-import");
+const { getGoogleSheetsConfiguration, readGoogleSheet } = require("../services/google-sheets-import");
 
 const router = express.Router();
 const upload = multer({
@@ -12,6 +13,10 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024, files: 1 },
 });
 const targetSchema = z.object({ clientId: z.string().min(1), storeId: z.string().min(1), campaignId: z.string().min(1) });
+const googleSheetsSchema = targetSchema.extend({
+  spreadsheetUrl: z.string().trim().min(1),
+  sheetName: z.string().trim().max(100).optional(),
+});
 
 router.use(requireRole("GESTOR"));
 
@@ -30,6 +35,10 @@ router.get("/", async (request, response) => {
   response.json({ data: batches });
 });
 
+router.get("/google-sheets/config", (_request, response) => {
+  response.json(getGoogleSheetsConfiguration());
+});
+
 router.get("/:id", async (request, response) => {
   const batch = await prisma.importBatch.findUnique({
     where: { id: request.params.id },
@@ -45,9 +54,7 @@ router.get("/:id", async (request, response) => {
   response.json(batch);
 });
 
-router.post("/", requireCsrf, upload.single("file"), async (request, response) => {
-  if (!request.file) throw new HttpError(400, "Selecione um arquivo CSV ou XLSX.");
-  const target = targetSchema.parse(request.body);
+async function findTargetCampaign(target) {
   const campaign = await prisma.campaign.findFirst({
     where: {
       id: target.campaignId,
@@ -59,21 +66,13 @@ router.post("/", requireCsrf, upload.single("file"), async (request, response) =
     },
   });
   if (!campaign) throw new HttpError(400, "A campanha deve estar ativa e pertencer ao cliente e à loja selecionados.");
+  return campaign;
+}
 
-  const parsed = await parseLeadFile(request.file);
+async function importRows({ campaign, parsed, fileName, uploadedById }) {
   const validated = validateRows(parsed.rows);
-  const phones = validated.candidates.map((row) => row.phone);
-  const existing = phones.length ? await prisma.lead.findMany({
-    where: { campaignId: campaign.id, phone: { in: phones } },
-    select: { phone: true },
-  }) : [];
-  const existingPhones = new Set(existing.map((lead) => lead.phone));
-  const importable = [];
+  const importable = validated.candidates;
   const errors = [...validated.errors];
-  for (const row of validated.candidates) {
-    if (existingPhones.has(row.phone)) errors.push({ rowNumber: row.rowNumber, code: "DUPLICATE_IN_CAMPAIGN", message: "Já existe um lead com este telefone na campanha.", rawData: row.rawData });
-    else importable.push(row);
-  }
 
   const batch = await prisma.$transaction(async (tx) => {
     const created = await tx.importBatch.create({
@@ -81,8 +80,8 @@ router.post("/", requireCsrf, upload.single("file"), async (request, response) =
         clientId: campaign.clientId,
         storeId: campaign.storeId,
         campaignId: campaign.id,
-        uploadedById: request.auth.user.id,
-        fileName: request.file.originalname.slice(0, 255),
+        uploadedById,
+        fileName: fileName.slice(0, 255),
         fileType: parsed.type,
         status: "COMPLETED",
         totalRows: parsed.rows.length,
@@ -104,20 +103,15 @@ router.post("/", requireCsrf, upload.single("file"), async (request, response) =
           importBatchId: created.id,
           importRow: row.rowNumber,
         })),
-        skipDuplicates: true,
       });
     }
-    const inserted = await tx.lead.findMany({ where: { importBatchId: created.id }, select: { phone: true } });
-    const insertedPhones = new Set(inserted.map((lead) => lead.phone));
-    for (const row of importable) {
-      if (!insertedPhones.has(row.phone)) errors.push({ rowNumber: row.rowNumber, code: "DUPLICATE_IN_CAMPAIGN", message: "O telefone foi importado simultaneamente por outro lote.", rawData: row.rawData });
-    }
+    const inserted = await tx.lead.count({ where: { importBatchId: created.id } });
     if (errors.length) await tx.importError.createMany({ data: errors.map((error) => ({ ...error, batchId: created.id })) });
-    if (inserted.length) await tx.campaign.update({ where: { id: campaign.id }, data: { receivedLeads: { increment: inserted.length } } });
+    if (inserted) await tx.campaign.update({ where: { id: campaign.id }, data: { receivedLeads: { increment: inserted } } });
     return tx.importBatch.update({
       where: { id: created.id },
       data: {
-        importedRows: inserted.length,
+        importedRows: inserted,
         rejectedRows: errors.length,
         status: errors.length ? "COMPLETED_WITH_ERRORS" : "COMPLETED",
         completedAt: new Date(),
@@ -130,6 +124,34 @@ router.post("/", requireCsrf, upload.single("file"), async (request, response) =
         errors: { orderBy: { rowNumber: "asc" }, take: 500 },
       },
     });
+  });
+
+  return batch;
+}
+
+router.post("/google-sheets", requireCsrf, async (request, response) => {
+  const input = googleSheetsSchema.parse(request.body);
+  const campaign = await findTargetCampaign(input);
+  const parsed = await readGoogleSheet(input);
+  const batch = await importRows({
+    campaign,
+    parsed,
+    fileName: parsed.fileName,
+    uploadedById: request.auth.user.id,
+  });
+  response.status(201).json(batch);
+});
+
+router.post("/", requireCsrf, upload.single("file"), async (request, response) => {
+  if (!request.file) throw new HttpError(400, "Selecione um arquivo CSV ou XLSX.");
+  const target = targetSchema.parse(request.body);
+  const campaign = await findTargetCampaign(target);
+  const parsed = await parseLeadFile(request.file);
+  const batch = await importRows({
+    campaign,
+    parsed,
+    fileName: request.file.originalname,
+    uploadedById: request.auth.user.id,
   });
 
   response.status(201).json(batch);

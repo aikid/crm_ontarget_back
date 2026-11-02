@@ -21,6 +21,9 @@ module.exports = {
   databaseUrl: process.env.DATABASE_URL,
   frontendUrls: originList(process.env.FRONTEND_URL, ["http://localhost:3000", "http://localhost:5173"]),
   publicBaseUrl: process.env.PUBLIC_BASE_URL,
+  googleSheets: {
+    serviceAccountJson: process.env.GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON,
+  },
   session: {
     cookieName: process.env.SESSION_COOKIE_NAME || "ontarget.sid",
     ttlHours: Number(process.env.SESSION_TTL_HOURS || 12),

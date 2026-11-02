@@ -111,7 +111,6 @@ function normalizePhone(value) {
 function validateRows(rows) {
   const candidates = [];
   const errors = [];
-  const seenPhones = new Set();
 
   for (const row of rows) {
     const rawData = {
@@ -129,11 +128,6 @@ function validateRows(rows) {
         throw new Error("Uma ou mais informações excedem o tamanho permitido.");
       }
       const phone = normalizePhone(rawData.telefone);
-      if (seenPhones.has(phone)) {
-        errors.push({ rowNumber: row.rowNumber, code: "DUPLICATE_IN_FILE", message: "Telefone repetido neste arquivo.", rawData });
-        continue;
-      }
-      seenPhones.add(phone);
       candidates.push({ rowNumber: row.rowNumber, phone, name: rawData.nome, vehicle: rawData.veiculo, origin: rawData.origem, reason: rawData.motivo || null, rawData });
     } catch (error) {
       errors.push({ rowNumber: row.rowNumber, code: "INVALID_ROW", message: error.message, rawData });
@@ -142,4 +136,4 @@ function validateRows(rows) {
   return { candidates, errors };
 }
 
-module.exports = { MAX_ROWS, normalizeHeader, normalizePhone, parseLeadFile, parseCsv, parseXlsx, validateRows };
+module.exports = { MAX_ROWS, normalizeHeader, normalizePhone, parseLeadFile, parseCsv, parseXlsx, rowsFromMatrix, validateRows };

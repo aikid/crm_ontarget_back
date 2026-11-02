@@ -46,7 +46,13 @@ router.get("/session", requireAuth, (request, response) => {
 });
 
 router.post("/logout", requireAuth, requireCsrf, async (request, response) => {
-  await prisma.authSession.delete({ where: { id: request.auth.session.id } });
+  await prisma.$transaction(async (tx) => {
+    await tx.lead.updateMany({
+      where: { reservedById: request.auth.user.id },
+      data: { reservedById: null, reservedAt: null, reservedUntil: null },
+    });
+    await tx.authSession.delete({ where: { id: request.auth.session.id } });
+  });
   response.setHeader("Set-Cookie", expiredSessionCookie());
   response.sendStatus(204);
 });

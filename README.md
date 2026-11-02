@@ -100,9 +100,12 @@ Campanhas aceitam os status `ACTIVE`, `INACTIVE` e `COMPLETED`. Uma campanha só
 
 ## Importação de leads
 
-Somente Gestores podem importar. O endpoint `POST /api/admin/imports` recebe `multipart/form-data` com `clientId`, `storeId`, `campaignId` e o campo de arquivo `file`.
+Somente Gestores podem importar. Há duas origens disponíveis:
 
-O modelo aceita CSV ou XLSX com as colunas fixas:
+- `POST /api/admin/imports`: recebe `multipart/form-data` com `clientId`, `storeId`, `campaignId` e o arquivo `file`.
+- `POST /api/admin/imports/google-sheets`: recebe JSON com `clientId`, `storeId`, `campaignId`, `spreadsheetUrl` e, opcionalmente, `sheetName`.
+
+Todas as origens usam as mesmas colunas fixas:
 
 | Coluna | Regra |
 |---|---|
@@ -113,10 +116,19 @@ O modelo aceita CSV ou XLSX com as colunas fixas:
 | `motivo` | Opcional |
 
 - Limite de 10 MB e 10.000 linhas por lote.
-- Telefones repetidos no arquivo ou já existentes na campanha são rejeitados.
+- Telefones repetidos são aceitos e geram leads distintos.
 - Linhas válidas são importadas mesmo quando outras linhas possuem erros.
 - Cada lote mantém totais e erros por linha em `ImportBatch` e `ImportError`.
 - `GET /api/admin/imports` lista os lotes e `GET /api/admin/imports/:id` retorna o relatório.
+
+### Conta de serviço do Google Sheets
+
+1. Ative a Google Sheets API no projeto do Google Cloud e crie uma conta de serviço com chave JSON.
+2. Configure o JSON completo na variável `GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON` do backend.
+3. Compartilhe a planilha como **Leitora** com o `client_email` da conta de serviço.
+4. `GET /api/admin/imports/google-sheets/config` informa ao frontend se a integração está pronta e qual e-mail deve receber o compartilhamento, sem expor a chave privada.
+
+Quando nenhuma aba é informada, o backend usa o `gid` do link; se ele não existir, utiliza a primeira aba visível. O Google Sheets segue o mesmo modelo de colunas, limite de 10.000 leads, validações e importação parcial dos arquivos.
 
 ## Contrato usado pelo frontend
 

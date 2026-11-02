@@ -237,7 +237,7 @@ model Lead {
   importRow      Int?
   importBatch    ImportBatch?   @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
 
-  @@unique([campaignId, phone])
+  @@index([campaignId, phone])
   @@index([campaignId, status, reservedUntil, createdAt])
   @@index([reservedById, reservedUntil])
   @@index([clientId, storeId])

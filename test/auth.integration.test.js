@@ -173,6 +173,20 @@ test("aplica papel e identidade do SDR no servidor", async () => {
 
 test("protege mutações com CSRF e invalida a sessão no logout", async () => {
   const { body, cookie } = await login("carlos@ontarget.com.br", true);
+  const lead = await prisma.lead.create({
+    data: {
+      clientId: "BRASAL",
+      storeId: "BRASAL-SIA",
+      campaignId: "FEIRAO-VW-AGO",
+      name: "Lead temporário de logout",
+      phone: `+55619${Date.now().toString().slice(-8)}`,
+      vehicle: "Teste",
+      origin: "Teste automatizado",
+      reservedById: body.user.id,
+      reservedAt: new Date(),
+      reservedUntil: new Date(Date.now() + 15 * 60_000),
+    },
+  });
 
   const withoutCsrf = await request("/api/auth/logout", {
     method: "POST",
@@ -186,10 +200,16 @@ test("protege mutações com CSRF e invalida a sessão no logout", async () => {
   });
   assert.equal(logout.status, 204);
 
+  const releasedLead = await prisma.lead.findUnique({ where: { id: lead.id } });
+  assert.equal(releasedLead.reservedById, null);
+  assert.equal(releasedLead.reservedAt, null);
+  assert.equal(releasedLead.reservedUntil, null);
+
   const afterLogout = await request("/api/auth/session", {
     headers: { Cookie: cookie },
   });
   assert.equal(afterLogout.status, 401);
+  await prisma.lead.delete({ where: { id: lead.id } });
   loginCache.delete("carlos@ontarget.com.br");
 });
 
@@ -308,7 +328,7 @@ test("banco rejeita lead fora da hierarquia da campanha", async () => {
   );
 });
 
-test("importa linhas válidas e relata inválidas ou duplicadas", async () => {
+test("importa telefones repetidos e rejeita somente linhas inválidas", async () => {
   const { body, cookie } = await login("carlos@ontarget.com.br");
   const form = new FormData();
   form.set("clientId", "BRASAL");
@@ -333,15 +353,16 @@ test("importa linhas válidas e relata inválidas ou duplicadas", async () => {
     const batch = await response.json();
     batchId = batch.id;
     assert.equal(batch.totalRows, 4);
-    assert.equal(batch.importedRows, 1);
-    assert.equal(batch.rejectedRows, 3);
+    assert.equal(batch.importedRows, 3);
+    assert.equal(batch.rejectedRows, 1);
     assert.equal(batch.status, "COMPLETED_WITH_ERRORS");
     assert.equal(batch.campaign.name, "Feirão Volkswagen Agosto");
-    assert.deepEqual(new Set(batch.errors.map((error) => error.code)), new Set(["INVALID_ROW", "DUPLICATE_IN_FILE", "DUPLICATE_IN_CAMPAIGN"]));
+    assert.deepEqual(new Set(batch.errors.map((error) => error.code)), new Set(["INVALID_ROW"]));
 
-    const lead = await prisma.lead.findUnique({ where: { campaignId_phone: { campaignId: "FEIRAO-VW-AGO", phone: "+5561999997770" } } });
-    assert.equal(lead.importBatchId, batch.id);
-    assert.equal(lead.importRow, 2);
+    const leads = await prisma.lead.findMany({ where: { importBatchId: batch.id }, orderBy: { importRow: "asc" } });
+    assert.equal(leads.length, 3);
+    assert.deepEqual(leads.map((lead) => lead.importRow), [2, 4, 5]);
+    assert.equal(leads.filter((lead) => lead.phone === "+5561999997770").length, 2);
   } finally {
     if (batchId) {
       const imported = await prisma.lead.count({ where: { importBatchId: batchId } });

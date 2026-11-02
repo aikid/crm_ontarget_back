@@ -9,16 +9,16 @@ test("normaliza telefones brasileiros para E.164", () => {
   assert.throws(() => normalizePhone("123"), /Telefone inválido/);
 });
 
-test("interpreta CSV com cabeçalhos fixos e registra duplicidade interna", () => {
+test("interpreta CSV com cabeçalhos fixos e aceita telefones repetidos", () => {
   const rows = parseCsv(Buffer.from([
     "nome;telefone;veículo;origem;motivo",
     "Maria Silva;(61) 99999-0001;Nivus;Site;Campanha",
     "Maria Duplicada;+5561999990001;Polo;Meta;",
   ].join("\n")));
   const result = validateRows(rows);
-  assert.equal(result.candidates.length, 1);
-  assert.equal(result.errors.length, 1);
-  assert.equal(result.errors[0].code, "DUPLICATE_IN_FILE");
+  assert.equal(result.candidates.length, 2);
+  assert.equal(result.errors.length, 0);
+  assert.equal(result.candidates[0].phone, result.candidates[1].phone);
 });
 
 test("interpreta a primeira aba de arquivo XLSX", async () => {
