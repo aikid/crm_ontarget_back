@@ -1,4 +1,5 @@
 const express = require("express");
+const crypto = require("node:crypto");
 const { z } = require("zod");
 const prisma = require("../lib/prisma");
 const { hashPassword } = require("../auth/password");
@@ -13,10 +14,11 @@ router.use((request, response, next) => {
 });
 
 const name = z.string().trim().min(2, "Informe ao menos 2 caracteres.").max(120);
+const email = z.string().trim().email("Informe um e-mail válido.").transform((value) => value.toLowerCase());
 const idParams = z.object({ id: z.string().min(1) });
 const activeSchema = z.object({ active: z.boolean() });
-const clientCreate = z.object({ name });
-const clientUpdate = z.object({ name: name.optional(), active: z.boolean().optional() }).refine((data) => Object.keys(data).length > 0);
+const clientCreate = z.object({ name, email });
+const clientUpdate = z.object({ name: name.optional(), email: email.optional(), active: z.boolean().optional() }).refine((data) => Object.keys(data).length > 0);
 const storeCreate = z.object({ clientId: z.string().min(1), name, shortName: z.string().trim().min(2).max(60) });
 const storeUpdate = z.object({ name: name.optional(), shortName: z.string().trim().min(2).max(60).optional(), active: z.boolean().optional() }).refine((data) => Object.keys(data).length > 0);
 const campaignStatus = z.enum(["ACTIVE", "INACTIVE", "COMPLETED"]);
@@ -39,7 +41,7 @@ const password = z.string().min(8, "A senha deve ter ao menos 8 caracteres.").ma
 const userCreate = z.object({
   clientId: z.string().min(1).nullable().optional(),
   name,
-  email: z.string().trim().email().transform((value) => value.toLowerCase()),
+  email,
   initials: z.string().trim().min(1).max(4).optional(),
   role: userRole,
   password,
@@ -47,7 +49,7 @@ const userCreate = z.object({
 const userUpdate = z.object({
   clientId: z.string().min(1).nullable().optional(),
   name: name.optional(),
-  email: z.string().trim().email().transform((value) => value.toLowerCase()).optional(),
+  email: email.optional(),
   initials: z.string().trim().min(1).max(4).optional(),
   role: userRole.optional(),
   active: z.boolean().optional(),
@@ -56,6 +58,10 @@ const userUpdate = z.object({
 
 function initials(value) {
   return value.split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase();
+}
+
+function temporaryPassword() {
+  return `${crypto.randomBytes(12).toString("base64url")}A1!`;
 }
 
 function publicAdminUser(user) {
@@ -97,6 +103,60 @@ router.patch("/clients/:id", async (request, response) => {
   const { id } = idParams.parse(request.params);
   const data = clientUpdate.parse(request.body);
   response.json(await prisma.client.update({ where: { id }, data }));
+});
+
+router.post("/clients/:id/access", async (request, response) => {
+  const { id } = idParams.parse(request.params);
+  const client = await prisma.client.findUnique({ where: { id } });
+  if (!client) throw new HttpError(404, "Cliente não encontrado.");
+  if (!client.active) throw new HttpError(409, "Ative o cliente antes de gerar o acesso ao Portal.");
+  if (!client.email) throw new HttpError(409, "Cadastre o e-mail do cliente antes de enviar o acesso.");
+
+  const [linkedPortalUser, emailOwner] = await Promise.all([
+    prisma.user.findFirst({ where: { clientId: id, role: "CLIENT" } }),
+    prisma.user.findUnique({ where: { email: client.email } }),
+  ]);
+  if (emailOwner && emailOwner.id !== linkedPortalUser?.id && (emailOwner.role !== "CLIENT" || emailOwner.clientId !== id)) {
+    throw new HttpError(409, "Este e-mail já pertence a outro usuário da plataforma.");
+  }
+
+  const portalUser = emailOwner?.role === "CLIENT" && emailOwner.clientId === id ? emailOwner : linkedPortalUser;
+  const passwordValue = temporaryPassword();
+  const passwordHash = await hashPassword(passwordValue);
+  const user = await prisma.$transaction(async (transaction) => {
+    if (portalUser) {
+      await transaction.authSession.deleteMany({ where: { userId: portalUser.id } });
+      return transaction.user.update({
+        where: { id: portalUser.id },
+        data: {
+          clientId: id,
+          name: client.name,
+          email: client.email,
+          initials: initials(client.name),
+          role: "CLIENT",
+          active: true,
+          passwordHash,
+        },
+      });
+    }
+    return transaction.user.create({
+      data: {
+        clientId: id,
+        name: client.name,
+        email: client.email,
+        initials: initials(client.name),
+        role: "CLIENT",
+        active: true,
+        passwordHash,
+      },
+    });
+  });
+
+  response.json({
+    email: user.email,
+    temporaryPassword: passwordValue,
+    userId: user.id,
+  });
 });
 
 router.get("/stores", async (request, response) => {

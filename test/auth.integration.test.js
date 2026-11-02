@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const app = require("../src/app");
 const prisma = require("../src/lib/prisma");
-const { hashPassword } = require("../src/auth/password");
+const { hashPassword, verifyPassword } = require("../src/auth/password");
 const env = require("../src/config/env");
 const { sessionCookie } = require("../src/auth/session");
 
@@ -235,16 +235,33 @@ test("gestor mantém a hierarquia cliente, loja, campanha e usuário", async () 
   let storeId;
   let campaignId;
   let userId;
+  let accessUserId;
   const mutationHeaders = { Cookie: cookie, "X-CSRF-Token": body.csrfToken };
 
   try {
     const clientResponse = await request("/api/admin/clients", {
       method: "POST",
       headers: mutationHeaders,
-      body: JSON.stringify({ name: `Cliente teste ${suffix}` }),
+      body: JSON.stringify({ name: `Cliente teste ${suffix}`, email: `cliente-${suffix}@example.com` }),
     });
     assert.equal(clientResponse.status, 201);
-    clientId = (await clientResponse.json()).id;
+    const createdClient = await clientResponse.json();
+    clientId = createdClient.id;
+    assert.equal(createdClient.email, `cliente-${suffix}@example.com`);
+
+    const accessResponse = await request(`/api/admin/clients/${clientId}/access`, {
+      method: "POST",
+      headers: mutationHeaders,
+    });
+    assert.equal(accessResponse.status, 200);
+    const access = await accessResponse.json();
+    accessUserId = access.userId;
+    assert.equal(access.email, createdClient.email);
+    assert.ok(access.temporaryPassword.length >= 12);
+    const accessUser = await prisma.user.findUnique({ where: { id: accessUserId } });
+    assert.equal(accessUser.role, "CLIENT");
+    assert.equal(accessUser.clientId, clientId);
+    assert.equal(await verifyPassword(access.temporaryPassword, accessUser.passwordHash), true);
 
     const storeResponse = await request("/api/admin/stores", {
       method: "POST",
@@ -320,6 +337,7 @@ test("gestor mantém a hierarquia cliente, loja, campanha e usuário", async () 
     assert.equal(blockedChild.status, 400);
   } finally {
     if (userId) await prisma.user.delete({ where: { id: userId } });
+    if (accessUserId) await prisma.user.delete({ where: { id: accessUserId } });
     if (campaignId) await prisma.campaign.delete({ where: { id: campaignId } });
     if (storeId) await prisma.store.delete({ where: { id: storeId } });
     if (clientId) await prisma.client.delete({ where: { id: clientId } });
