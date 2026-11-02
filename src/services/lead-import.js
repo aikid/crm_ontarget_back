@@ -3,6 +3,13 @@ const { parse } = require("csv-parse/sync");
 const ExcelJS = require("exceljs");
 const { HttpError } = require("../lib/http-error");
 
+const FIELD_ALIASES = {
+  nome: ["nome"],
+  telefone: ["telefone"],
+  veiculo: ["veiculo", "veiculo_interesse", "carro"],
+  origem: ["origem", "origem_base"],
+  motivo: ["motivo", "origem_base_motivo"],
+};
 const REQUIRED_HEADERS = ["nome", "telefone", "veiculo", "origem"];
 const MAX_ROWS = 10_000;
 
@@ -12,7 +19,8 @@ function normalizeHeader(value) {
     .replace(/[\u0300-\u036f]/g, "")
     .trim()
     .toLowerCase()
-    .replace(/[\s-]+/g, "_");
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 }
 
 function cellText(value) {
@@ -27,10 +35,17 @@ function cellText(value) {
 }
 
 function assertHeaders(headers) {
-  const missing = REQUIRED_HEADERS.filter((header) => !headers.includes(header));
+  const missing = REQUIRED_HEADERS.filter((field) => !FIELD_ALIASES[field].some((header) => headers.includes(header)));
   if (missing.length) {
     throw new HttpError(400, `O arquivo não contém as colunas obrigatórias: ${missing.join(", ")}.`);
   }
+}
+
+function canonicalizeRowData(data) {
+  return Object.fromEntries(Object.entries(FIELD_ALIASES).map(([field, aliases]) => {
+    const value = aliases.map((alias) => data[alias]).find((candidate) => String(candidate || "").trim());
+    return [field, value || ""];
+  }));
 }
 
 function rowsFromMatrix(matrix) {
@@ -39,10 +54,11 @@ function rowsFromMatrix(matrix) {
   assertHeaders(headers);
   const rows = matrix.slice(1)
     .map((values, index) => {
-      const data = Object.fromEntries(headers.map((header, column) => [header, cellText(values[column])]));
-      return { rowNumber: index + 2, data };
+      const sourceData = Object.fromEntries(headers.map((header, column) => [header, cellText(values[column])]));
+      return { rowNumber: index + 2, sourceData, data: canonicalizeRowData(sourceData) };
     })
-    .filter((row) => Object.values(row.data).some(Boolean));
+    .filter((row) => Object.values(row.sourceData).some(Boolean))
+    .map(({ rowNumber, data }) => ({ rowNumber, data }));
   if (!rows.length) throw new HttpError(400, "O arquivo não possui linhas de leads.");
   if (rows.length > MAX_ROWS) throw new HttpError(400, `O arquivo excede o limite de ${MAX_ROWS} leads por importação.`);
   return rows;
@@ -136,4 +152,4 @@ function validateRows(rows) {
   return { candidates, errors };
 }
 
-module.exports = { MAX_ROWS, normalizeHeader, normalizePhone, parseLeadFile, parseCsv, parseXlsx, rowsFromMatrix, validateRows };
+module.exports = { FIELD_ALIASES, MAX_ROWS, normalizeHeader, normalizePhone, parseLeadFile, parseCsv, parseXlsx, rowsFromMatrix, validateRows };

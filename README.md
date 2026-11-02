@@ -115,6 +115,19 @@ Todas as origens usam as mesmas colunas fixas:
 | `origem` | Obrigatória |
 | `motivo` | Opcional |
 
+O modelo operacional amplo da OnTarget também é aceito com os seguintes aliases:
+
+| Coluna do modelo amplo | Campo importado |
+|---|---|
+| `NOME` | `nome` |
+| `TELEFONE` | `telefone` |
+| `VEÍCULO INTERESSE` | `veiculo` (prioritário) |
+| `CARRO` | `veiculo` quando `VEÍCULO INTERESSE` estiver vazio |
+| `ORIGEM BASE` | `origem` |
+| `ORIGEM/BASE/MOTIVO` | `motivo` |
+
+As demais colunas do modelo amplo são ignoradas nesta etapa da V1.
+
 - Limite de 10 MB e 10.000 linhas por lote.
 - Telefones repetidos são aceitos e geram leads distintos.
 - Linhas válidas são importadas mesmo quando outras linhas possuem erros.

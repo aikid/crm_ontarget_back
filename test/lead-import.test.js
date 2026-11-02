@@ -32,3 +32,22 @@ test("interpreta a primeira aba de arquivo XLSX", async () => {
   assert.equal(rows[0].data.nome, "Carlos Teste");
   assert.equal(rows[0].data.veiculo, "T-Cross");
 });
+
+test("aceita o modelo amplo da OnTarget e aplica os fallbacks definidos", () => {
+  const rows = parseCsv(Buffer.from([
+    "AÇÃO,ORIGEM BASE,LOJA,NOME,TELEFONE,CARRO,ORIGEM/BASE/MOTIVO,VEÍCULO INTERESSE,STATUS FLUXO",
+    "Liquid Nasa,Meta Ads,SIA,Diego Mendes,11982568929,Polo,Campanha de novembro,Nivus,DISPARO ENVIADO",
+    "Liquid Nasa,Site,SIA,Ana Souza,11947341276,T-Cross,Feirão,,NOVO",
+  ].join("\n")));
+
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows[0].data, {
+    nome: "Diego Mendes",
+    telefone: "11982568929",
+    veiculo: "Nivus",
+    origem: "Meta Ads",
+    motivo: "Campanha de novembro",
+  });
+  assert.equal(rows[1].data.veiculo, "T-Cross");
+  assert.equal(validateRows(rows).candidates.length, 2);
+});
