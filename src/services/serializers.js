@@ -3,7 +3,8 @@ const statusLabels = {
   CALLBACK: "Retorno",
   CONTACTED: "Contato realizado",
   QUALIFIED: "Qualificado",
-  NOT_QUALIFIED: "Não qualificado",
+  DIRECTED: "Direcionado",
+  NOT_QUALIFIED: "Sem interesse",
   REFUSED: "Recusou",
   EXHAUSTED: "Tentativas esgotadas",
   INVALID_NUMBER: "Número inválido",
@@ -15,7 +16,8 @@ const outcomeLabels = {
   REFUSED: "Recusou",
   CONTACTED: "Contato realizado",
   QUALIFIED: "Qualificado",
-  NOT_QUALIFIED: "Não qualificado",
+  DIRECTED: "Direcionado",
+  NOT_QUALIFIED: "Sem interesse",
   CALLBACK: "Retorno solicitado",
 };
 

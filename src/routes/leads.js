@@ -14,6 +14,7 @@ const outcomes = new Set([
   "REFUSED",
   "CONTACTED",
   "QUALIFIED",
+  "DIRECTED",
   "NOT_QUALIFIED",
   "CALLBACK",
 ]);
@@ -23,6 +24,7 @@ const leadStatusByOutcome = {
   REFUSED: "REFUSED",
   CONTACTED: "CONTACTED",
   QUALIFIED: "QUALIFIED",
+  DIRECTED: "DIRECTED",
   NOT_QUALIFIED: "NOT_QUALIFIED",
   CALLBACK: "CALLBACK",
 };
@@ -33,6 +35,7 @@ const legacyCallResult = {
   REFUSED: "no_interest",
   CONTACTED: "contacted",
   QUALIFIED: "qualified",
+  DIRECTED: "directed",
   NOT_QUALIFIED: "not_qualified",
   CALLBACK: "callback",
 };
@@ -123,11 +126,12 @@ router.post("/:leadId/outcomes", requireRole("SDR"), requireCsrf, async (request
       await tx.callback.updateMany({ where: { leadId, completedAt: null }, data: { completedAt: now } });
     }
 
-    if (outcome === "QUALIFIED") {
+    if (["QUALIFIED", "DIRECTED"].includes(outcome)) {
+      const qualificationType = outcome === "DIRECTED" ? "Direcionado" : "Qualificado";
       await tx.qualification.upsert({
         where: { leadId },
-        create: { leadId, type: "Qualificado", notes },
-        update: { type: "Qualificado", notes },
+        create: { leadId, type: qualificationType, notes },
+        update: { type: qualificationType, notes },
       });
     }
 

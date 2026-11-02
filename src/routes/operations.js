@@ -8,7 +8,7 @@ const { serializeLead } = require("../services/serializers");
 const router = express.Router();
 router.use(requireRole("GESTOR"));
 
-const statuses = new Set(["PENDING", "CALLBACK", "CONTACTED", "QUALIFIED", "NOT_QUALIFIED", "REFUSED", "EXHAUSTED", "INVALID_NUMBER"]);
+const statuses = new Set(["PENDING", "CALLBACK", "CONTACTED", "QUALIFIED", "DIRECTED", "NOT_QUALIFIED", "REFUSED", "EXHAUSTED", "INVALID_NUMBER"]);
 const nonContacts = new Set(["NO_ANSWER", "INVALID_NUMBER"]);
 const outcomeMeta = {
   NO_ANSWER: { label: "Não atendeu", color: "#a9afbb" },
@@ -16,7 +16,8 @@ const outcomeMeta = {
   REFUSED: { label: "Recusou", color: "#6f7786" },
   CONTACTED: { label: "Contato realizado", color: "#257e5f" },
   QUALIFIED: { label: "Qualificado", color: "#4158d5" },
-  NOT_QUALIFIED: { label: "Não qualificado", color: "#8a70c9" },
+  DIRECTED: { label: "Direcionado", color: "#4158d5" },
+  NOT_QUALIFIED: { label: "Sem interesse", color: "#8a70c9" },
   CALLBACK: { label: "Retorno solicitado", color: "#dd8b31" },
 };
 
@@ -114,7 +115,7 @@ router.get("/dashboard", async (request, response) => {
   ]);
 
   const contacts = attempts.filter((attempt) => !nonContacts.has(attempt.outcome));
-  const qualified = attempts.filter((attempt) => attempt.outcome === "QUALIFIED");
+  const qualified = attempts.filter((attempt) => ["QUALIFIED", "DIRECTED"].includes(attempt.outcome));
   const grouped = new Map();
   attempts.forEach((attempt) => grouped.set(attempt.outcome, (grouped.get(attempt.outcome) || 0) + 1));
 
@@ -140,7 +141,7 @@ router.get("/dashboard", async (request, response) => {
   const ranking = agents.map((agent) => {
     const own = attempts.filter((attempt) => attempt.sdrId === agent.id);
     const ownContacts = own.filter((attempt) => !nonContacts.has(attempt.outcome));
-    const ownQualified = own.filter((attempt) => attempt.outcome === "QUALIFIED");
+    const ownQualified = own.filter((attempt) => ["QUALIFIED", "DIRECTED"].includes(attempt.outcome));
     return {
       ...agent,
       attempts: own.length,

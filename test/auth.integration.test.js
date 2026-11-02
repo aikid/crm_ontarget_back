@@ -537,11 +537,14 @@ test("limita três tentativas e mantém retornos fora da fila automática", asyn
 
     const explicitClaim = await request(`/api/sdr/callbacks/${callbackLead.id}/claim`, { method: "POST", headers });
     assert.equal(explicitClaim.status, 200);
-    const qualified = await request(`/api/leads/${callbackLead.id}/outcomes`, {
-      method: "POST", headers, body: JSON.stringify({ outcome: "QUALIFIED" }),
+    const directed = await request(`/api/leads/${callbackLead.id}/outcomes`, {
+      method: "POST", headers, body: JSON.stringify({ outcome: "DIRECTED" }),
     });
-    assert.equal(qualified.status, 201);
-    assert.equal((await qualified.json()).attempts, 2);
+    assert.equal(directed.status, 201);
+    const directedLead = await directed.json();
+    assert.equal(directedLead.attempts, 2);
+    assert.equal(directedLead.statusCode, "DIRECTED");
+    assert.equal(directedLead.qualification.type, "Direcionado");
   } finally {
     await cleanupQueueFixture(fixture);
     await cleanupTestSdrs(testSdr.user);
@@ -556,10 +559,10 @@ test("dashboard e consulta de leads usam tentativas reais e respeitam filtros", 
 
   try {
     await prisma.attempt.createMany({ data: [
-      { leadId: fixture.leads[0].id, sdrId: "user-sdr-ana", sequence: 1, outcome: "QUALIFIED", notes: "Perfil confirmado", startedAt: registeredAt, finishedAt: registeredAt, createdAt: registeredAt },
+      { leadId: fixture.leads[0].id, sdrId: "user-sdr-ana", sequence: 1, outcome: "DIRECTED", notes: "Perfil confirmado", startedAt: registeredAt, finishedAt: registeredAt, createdAt: registeredAt },
       { leadId: fixture.leads[1].id, sdrId: "user-sdr-lucas", sequence: 1, outcome: "NO_ANSWER", notes: "Sem resposta", startedAt: registeredAt, finishedAt: registeredAt, createdAt: registeredAt },
     ] });
-    await prisma.lead.update({ where: { id: fixture.leads[0].id }, data: { status: "QUALIFIED", attempts: 1, lastContact: registeredAt } });
+    await prisma.lead.update({ where: { id: fixture.leads[0].id }, data: { status: "DIRECTED", attempts: 1, lastContact: registeredAt } });
     await prisma.lead.update({ where: { id: fixture.leads[1].id }, data: { status: "PENDING", attempts: 1, lastContact: registeredAt } });
 
     const dashboard = await request(`/api/operations/dashboard?dateFrom=2026-10-04&dateTo=2026-10-04&campaignId=${fixture.campaign.id}`, {
@@ -572,7 +575,7 @@ test("dashboard e consulta de leads usam tentativas reais e respeitam filtros", 
     assert.equal(indicators.kpis.contacts, 1);
     assert.equal(indicators.kpis.qualified, 1);
     assert.equal(indicators.kpis.conversion, 100);
-    assert.equal(indicators.outcomes.find((item) => item.code === "QUALIFIED").value, 1);
+    assert.equal(indicators.outcomes.find((item) => item.code === "DIRECTED").value, 1);
 
     const leadSearch = await request(`/api/operations/leads?campaignId=${fixture.campaign.id}&search=Lead%20fila%201`, {
       headers: { Cookie: manager.cookie },
@@ -582,7 +585,13 @@ test("dashboard e consulta de leads usam tentativas reais e respeitam filtros", 
     assert.equal(result.pagination.total, 1);
     assert.equal(result.data[0].id, fixture.leads[0].id);
     assert.equal(result.data[0].history.length, 1);
-    assert.equal(result.data[0].history[0].result, "Qualificado");
+    assert.equal(result.data[0].history[0].result, "Direcionado");
+
+    const directedFilter = await request(`/api/operations/leads?campaignId=${fixture.campaign.id}&status=DIRECTED`, {
+      headers: { Cookie: manager.cookie },
+    });
+    assert.equal(directedFilter.status, 200);
+    assert.equal((await directedFilter.json()).pagination.total, 1);
 
     const invalidStatus = await request(`/api/operations/leads?campaignId=${fixture.campaign.id}&status=UNKNOWN`, {
       headers: { Cookie: manager.cookie },
