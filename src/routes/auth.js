@@ -2,8 +2,9 @@ const express = require("express");
 const { rateLimit } = require("express-rate-limit");
 const { z } = require("zod");
 const prisma = require("../lib/prisma");
+const env = require("../config/env");
 const { HttpError } = require("../lib/http-error");
-const { verifyPassword } = require("../auth/password");
+const { hashPassword, verifyPassword } = require("../auth/password");
 const {
   createPasswordResetToken,
   discardPasswordResetToken,
@@ -21,7 +22,7 @@ const credentialsSchema = z.object({
 });
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 10,
+  limit: env.nodeEnv === "test" ? 100 : 10,
   standardHeaders: "draft-8",
   legacyHeaders: false,
   message: { error: { message: "Muitas tentativas de login. Aguarde alguns minutos." } },
@@ -40,6 +41,18 @@ const resetPasswordSchema = z.object({
   token: z.string().min(32).max(256),
   password: z.string().min(8, "A senha deve ter pelo menos 8 caracteres.").max(128),
 });
+const profileSchema = z.object({
+  name: z.string().trim().min(2, "Informe ao menos 2 caracteres.").max(120).optional(),
+  newPassword: z.string().min(8, "A nova senha deve ter pelo menos 8 caracteres.").max(128).optional(),
+}).superRefine((data, context) => {
+  if (!data.name && !data.newPassword) {
+    context.addIssue({ code: "custom", message: "Informe um dado para atualizar." });
+  }
+});
+
+function initials(name) {
+  return name.split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase();
+}
 
 router.post("/login", loginLimiter, async (request, response) => {
   const credentials = credentialsSchema.parse(request.body);
@@ -90,6 +103,30 @@ router.post("/reset-password", recoveryLimiter, async (request, response) => {
 
 router.get("/session", requireAuth, (request, response) => {
   response.json({ user: publicUser(request.auth.user), csrfToken: request.auth.session.csrfToken });
+});
+
+router.patch("/profile", requireAuth, requireCsrf, async (request, response) => {
+  const data = profileSchema.parse(request.body);
+
+  const user = await prisma.$transaction(async (transaction) => {
+    const updated = await transaction.user.update({
+      where: { id: request.auth.user.id },
+      data: {
+        ...(data.name ? { name: data.name, initials: initials(data.name) } : {}),
+        ...(data.newPassword ? { passwordHash: await hashPassword(data.newPassword) } : {}),
+      },
+      include: { client: true },
+    });
+    if (data.newPassword) {
+      await transaction.authSession.deleteMany({
+        where: { userId: updated.id, id: { not: request.auth.session.id } },
+      });
+      await transaction.passwordResetToken.deleteMany({ where: { userId: updated.id } });
+    }
+    return updated;
+  });
+
+  response.json({ user: publicUser(user) });
 });
 
 router.post("/logout", requireAuth, requireCsrf, async (request, response) => {

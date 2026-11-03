@@ -147,6 +147,37 @@ test("emite cookie particionado na configuração cross-site de produção", () 
   }
 });
 
+test("usuário autenticado atualiza o próprio nome e senha sem acessar a gestão geral", async () => {
+  const original = await prisma.user.findUnique({ where: { email: "ana@ontarget.com.br" } });
+  const { body, cookie } = await login(original.email, true);
+  const headers = { Cookie: cookie, "X-CSRF-Token": body.csrfToken };
+  try {
+    const updated = await request("/api/auth/profile", {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({
+        name: "Ana Perfil Teste",
+        newPassword: "PerfilNovo@123",
+      }),
+    });
+    assert.equal(updated.status, 200);
+    const payload = await updated.json();
+    assert.equal(payload.user.name, "Ana Perfil Teste");
+    assert.equal(payload.user.initials, "AP");
+    assert.equal(payload.user.email, original.email);
+    assert.equal("passwordHash" in payload.user, false);
+
+    const stored = await prisma.user.findUnique({ where: { id: original.id } });
+    assert.equal(await verifyPassword("PerfilNovo@123", stored.passwordHash), true);
+  } finally {
+    await prisma.user.update({
+      where: { id: original.id },
+      data: { name: original.name, initials: original.initials, passwordHash: original.passwordHash },
+    });
+    loginCache.delete(original.email);
+  }
+});
+
 test("exige sessão para acessar a API protegida", async () => {
   const response = await request("/api/session");
   assert.equal(response.status, 401);
