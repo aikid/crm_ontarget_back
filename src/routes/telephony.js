@@ -1,4 +1,6 @@
 const express = require("express");
+const { Readable } = require("node:stream");
+const { pipeline } = require("node:stream/promises");
 const env = require("../config/env");
 const prisma = require("../lib/prisma");
 const { HttpError, required } = require("../lib/http-error");
@@ -10,8 +12,10 @@ const asteriskRuntime = require("../services/asterisk/runtime-state");
 const asteriskCallEngine = require("../services/asterisk/call-engine-instance");
 const { createCallIntent } = require("../services/asterisk/call-intent");
 const { publicSipSession } = require("../services/asterisk/sip-accounts");
+const { AriClient, AriRequestError } = require("../services/asterisk/ari-client");
 
 const router = express.Router();
+const ariClient = new AriClient();
 
 async function ownedCall(request, callId) {
   const call = await prisma.call.findFirst({
@@ -52,7 +56,6 @@ function publicAsteriskCall(call) {
     durationSec: call.durationSec,
     disconnectReason: call.disconnectReason,
     q850Cause: call.q850Cause,
-    recording: call.recording ? { status: call.recording.status, name: call.recording.name } : null,
   };
 }
 
@@ -93,6 +96,46 @@ router.post("/asterisk/calls", requireAuth, requireRole("SDR"), requireCsrf, asy
 router.get("/asterisk/calls/:callId", requireAuth, requireRole("SDR"), async (request, response) => {
   const call = await ownedAsteriskCall(request, request.params.callId, { recording: true });
   response.json(publicAsteriskCall(call));
+});
+
+router.get("/asterisk/calls/:callId/recording", requireAuth, requireRole("GESTOR"), async (request, response) => {
+  const call = await prisma.call.findFirst({
+    where: { id: request.params.callId, provider: "asterisk" },
+    include: { recording: true },
+  });
+  if (!call?.recording) throw new HttpError(404, "Gravação não encontrada.");
+
+  const recording = call.recording;
+  const expired = recording.retentionDeleteAfter && recording.retentionDeleteAfter <= new Date();
+  if (recording.status === "DELETED" || expired) {
+    throw new HttpError(410, "Esta gravação expirou conforme a retenção de 60 dias.");
+  }
+  if (recording.status !== "STORED_LOCAL") {
+    throw new HttpError(409, "A gravação ainda não está disponível.");
+  }
+
+  let source;
+  try {
+    source = await ariClient.storedRecordingFile(recording.name);
+  } catch (error) {
+    if (error instanceof AriRequestError && error.status === 404) {
+      await prisma.callRecording.update({
+        where: { id: recording.id },
+        data: { lastError: "Arquivo não encontrado no Asterisk." },
+      });
+      throw new HttpError(404, "O arquivo da gravação não foi encontrado na VM.");
+    }
+    throw new HttpError(502, `Não foi possível obter a gravação no Asterisk: ${error.message}`);
+  }
+
+  const disposition = request.query.download === "true" ? "attachment" : "inline";
+  response.setHeader("Content-Type", source.headers.get("content-type") || "audio/wav");
+  response.setHeader("Content-Disposition", `${disposition}; filename="gravacao-${call.id}.wav"`);
+  response.setHeader("Cache-Control", "private, no-store");
+  const contentLength = source.headers.get("content-length");
+  if (contentLength) response.setHeader("Content-Length", contentLength);
+  if (!source.body) throw new HttpError(502, "Asterisk retornou a gravação sem conteúdo.");
+  await pipeline(Readable.fromWeb(source.body), response);
 });
 
 router.get("/asterisk/calls/:callId/events", requireAuth, requireRole("SDR"), async (request, response) => {

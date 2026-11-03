@@ -122,6 +122,7 @@ enum CallRecordingStatus {
   UPLOADING
   STORED
   FAILED
+  DELETED
 }
 
 model AuthSession {
@@ -369,6 +370,9 @@ model CallRecording {
   name                 String              @unique
   status               CallRecordingStatus @default(PENDING)
   format               String              @default("wav")
+  localPath            String?
+  verifiedAt           DateTime?
+  deletedAt            DateTime?
   storageBucket        String?
   storageKey           String?
   sha256               String?
@@ -382,6 +386,7 @@ model CallRecording {
   call                 Call                @relation(fields: [callId], references: [id], onDelete: Cascade)
 
   @@index([status, createdAt])
+  @@index([retentionDeleteAfter, status])
 }
 
 model Callback {

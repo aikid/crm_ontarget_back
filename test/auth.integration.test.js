@@ -627,3 +627,13 @@ test("dashboard e consulta de leads usam tentativas reais e respeitam filtros", 
     await cleanupQueueFixture(fixture);
   }
 });
+
+test("somente gestor pode consultar ou baixar gravações", async () => {
+  const manager = await login("carlos@ontarget.com.br");
+  const portal = await login("ricardo@brasaldemo.com.br");
+  const sdr = await login("ana@ontarget.com.br");
+  const path = "/api/telephony/asterisk/calls/call-inexistente/recording";
+  assert.equal((await request(path, { headers: { Cookie: portal.cookie } })).status, 403);
+  assert.equal((await request(path, { headers: { Cookie: sdr.cookie } })).status, 403);
+  assert.equal((await request(path, { headers: { Cookie: manager.cookie } })).status, 404);
+});

@@ -185,7 +185,7 @@ router.get("/leads", async (request, response) => {
     }),
   ]);
   response.json({
-    data: leads.map(serializeLead),
+    data: leads.map((lead) => serializeLead(lead, { includeRecordings: true })),
     pagination: { page, pageSize, total, pages: Math.ceil(total / pageSize) },
   });
 });

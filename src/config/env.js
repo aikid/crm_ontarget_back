@@ -54,6 +54,8 @@ module.exports = {
     maxCallSeconds: Number(process.env.MAX_CALL_SECONDS || 7_200),
     reconnectMinMs: Number(process.env.ARI_RECONNECT_MIN_MS || 1_000),
     reconnectMaxMs: Number(process.env.ARI_RECONNECT_MAX_MS || 30_000),
+    recordingsPath: (process.env.ASTERISK_RECORDINGS_PATH || "/var/spool/asterisk/recording").replace(/\/$/, ""),
+    recordingRetentionDays: Math.min(60, Math.max(1, Number(process.env.CALL_RECORDING_RETENTION_DAYS || 60))),
   },
   // Legado temporário: removido quando o motor ARI assumir as rotas de telefonia.
   threeCx: {

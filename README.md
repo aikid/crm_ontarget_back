@@ -196,6 +196,7 @@ A consulta de leads aceita `search`, `clientId`, `storeId`, `campaignId`, `statu
 | Consultar chamada Asterisk | `GET /api/telephony/asterisk/calls/:callId` |
 | Eventos da chamada Asterisk | `GET /api/telephony/asterisk/calls/:callId/events` |
 | Encerrar chamada Asterisk | `POST /api/telephony/asterisk/calls/:callId/hangup` |
+| Ouvir/baixar gravação (Gestor) | `GET /api/telephony/asterisk/calls/:callId/recording` |
 
 Filtros aceitos em `leads`: `page`, `pageSize`, `search`, `storeId`, `status`, `vehicle`, `seller` e `audit`.
 
@@ -266,6 +267,19 @@ ASTERISK_SIP_PASSWORD=segredo-do-ramal-201
 ```
 
 O `/health` informa `telephony.asterisk.sip.configured`, a quantidade de contas provisionadas e se o modo compartilhado de POC está ativo, sem expor ramais ou senhas.
+
+### Gravações e retenção
+
+Os arquivos WAV permanecem na VM do Asterisk em `/var/spool/asterisk/recording`; o PostgreSQL armazena apenas nome, caminho interno, estado e datas de verificação/expiração. Somente o perfil `GESTOR` pode ouvir ou baixar uma gravação pelo backend. SDR e Portal do Cliente não recebem metadados nem acesso ao áudio.
+
+A retenção padrão é de 60 dias. Na inicialização e a cada hora, o backend remove pela ARI os arquivos vencidos e mantém o registro como `DELETED` para rastreabilidade. O período pode ser reduzido, mas nunca ampliado além de 60 dias:
+
+```env
+ASTERISK_RECORDINGS_PATH=/var/spool/asterisk/recording
+CALL_RECORDING_RETENTION_DAYS=60
+```
+
+O aviso de gravação não é reproduzido automaticamente: conforme a regra operacional vigente, ele deve ser informado verbalmente pelo SDR.
 
 O consumidor permanece desativado enquanto `ASTERISK_ENABLED=false`. Para a primeira validação real, abra o túnel SSH, configure as credenciais somente em `backend/.env` e então ative a integração. Não copie as credenciais para o frontend nem para este README.
 

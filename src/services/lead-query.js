@@ -3,7 +3,7 @@ const prisma = require("../lib/prisma");
 const leadInclude = {
   store: { select: { id: true, name: true, shortName: true } },
   campaign: { select: { id: true, name: true } },
-  calls: { orderBy: { startedAt: "asc" } },
+  calls: { orderBy: { startedAt: "asc" }, include: { recording: true } },
   attemptRecords: {
     orderBy: { sequence: "asc" },
     include: { sdr: { select: { id: true, name: true, initials: true } } },

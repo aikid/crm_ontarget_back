@@ -39,7 +39,7 @@ class AriClient {
     return { Authorization: `Basic ${token}` };
   }
 
-  async request(method, path, { query, body, timeoutMs = 10_000 } = {}) {
+  async requestRaw(method, path, { query, body, timeoutMs = 10_000 } = {}) {
     this.assertConfigured();
     const url = new URL(`/ari${path.startsWith("/") ? path : `/${path}`}`, `${this.config.ariHttpUrl}/`);
     Object.entries(query || {}).forEach(([key, value]) => {
@@ -55,13 +55,21 @@ class AriClient {
       ...(body ? { body: JSON.stringify(body) } : {}),
       signal: AbortSignal.timeout(timeoutMs),
     });
-    const text = await response.text();
-    let payload = null;
-    try { payload = text ? JSON.parse(text) : null; } catch { payload = text; }
     if (!response.ok) {
+      const text = await response.text();
+      let payload = null;
+      try { payload = text ? JSON.parse(text) : null; } catch { payload = text; }
       const detail = payload?.message || payload?.error || `ARI respondeu HTTP ${response.status}.`;
       throw new AriRequestError(detail, response.status, payload);
     }
+    return response;
+  }
+
+  async request(method, path, options = {}) {
+    const response = await this.requestRaw(method, path, options);
+    const text = await response.text();
+    let payload = null;
+    try { payload = text ? JSON.parse(text) : null; } catch { payload = text; }
     return payload;
   }
 
@@ -75,6 +83,10 @@ class AriClient {
 
   delete(path, query) {
     return this.request("DELETE", path, { query });
+  }
+
+  storedRecordingFile(name) {
+    return this.requestRaw("GET", `/recordings/stored/${encodeURIComponent(name)}/file`, { timeoutMs: 60_000 });
   }
 
   eventsUrl() {

@@ -10,6 +10,8 @@ function config(overrides = {}) {
     ariApp: "crm_browser_poc",
     intentTtlSeconds: 30,
     maxCallSeconds: 120,
+    recordingsPath: "/var/spool/asterisk/recording",
+    recordingRetentionDays: 60,
     ...overrides,
   };
 }
@@ -38,7 +40,8 @@ function harness(callOverrides = {}) {
     callRecording: {
       upsert: async ({ create }) => { call.recording = create; return create; },
       update: async ({ data }) => { Object.assign(call.recording, data); },
-      updateMany: async () => {},
+      updateMany: async ({ data }) => { if (call.recording) Object.assign(call.recording, data); },
+      findMany: async () => [],
     },
   };
   const client = {
@@ -121,6 +124,32 @@ test("cria bridge, inicia gravação dos dois lados e marca CONNECTED", async ()
     `/bridges/${call.ariBridgeId}/record`,
   ]);
   assert.equal(transitions.at(-1).status, "CONNECTED");
+});
+
+test("finaliza gravação com caminho local e retenção de 60 dias", async () => {
+  const { call, engine } = harness({ recording: { name: "call_call-1", status: "RECORDING" } });
+  const before = Date.now();
+  await engine.handleRecordingFinished({ recording: { name: "call_call-1" } });
+  assert.equal(call.recording.status, "STORED_LOCAL");
+  assert.equal(call.recording.localPath, "/var/spool/asterisk/recording/call_call-1.wav");
+  assert.ok(call.recording.verifiedAt instanceof Date);
+  const retentionDays = (call.recording.retentionDeleteAfter.getTime() - before) / 86_400_000;
+  assert.ok(retentionDays >= 59.99 && retentionDays <= 60.01);
+});
+
+test("remove gravação expirada na VM e preserva o registro como DELETED", async () => {
+  const { calls, database, engine } = harness();
+  const expired = { id: "recording-1", name: "call_expired", status: "STORED_LOCAL" };
+  let update;
+  database.callRecording.findMany = async () => [expired];
+  database.callRecording.update = async (query) => { update = query; };
+  const now = new Date("2026-11-02T12:00:00.000Z");
+  assert.equal(await engine.sweepExpiredRecordings(now), 1);
+  assert.equal(calls[0].path, "/recordings/stored/call_expired");
+  assert.deepEqual(update, {
+    where: { id: "recording-1" },
+    data: { status: "DELETED", deletedAt: now, lastError: null },
+  });
 });
 
 test("Ringing remoto atualiza estado técnico", async () => {

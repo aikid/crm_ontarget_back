@@ -50,6 +50,22 @@ test("gera URL de eventos e abre WebSocket com autenticação privada", () => {
   assert.match(captured.options.headers.Authorization, /^Basic /);
 });
 
+test("obtém o arquivo armazenado sem consumir o corpo binário", async () => {
+  let capturedUrl;
+  const binaryResponse = {
+    ok: true,
+    status: 200,
+    body: { stream: true },
+    headers: new Map([["content-type", "audio/wav"]]),
+  };
+  const client = new AriClient(config(), {
+    fetch: async (url) => { capturedUrl = url.toString(); return binaryResponse; },
+  });
+  const response = await client.storedRecordingFile("call 123");
+  assert.equal(capturedUrl, "http://127.0.0.1:18088/ari/recordings/stored/call%20123/file");
+  assert.equal(response, binaryResponse);
+});
+
 test("recusa uso quando integração está desativada ou sem credenciais", () => {
   assert.throws(() => new AriClient(config({ enabled: false })).openEvents(), /desativada/);
   assert.throws(() => new AriClient(config({ ariPassword: "" })).openEvents(), /não configuradas/);

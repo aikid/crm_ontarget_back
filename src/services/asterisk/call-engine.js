@@ -32,6 +32,7 @@ class AsteriskCallEngine {
     this.persistEvent = persistEvent;
     this.cleanupInProgress = new Set();
     this.sweepTimer = null;
+    this.recordingSweepTimer = null;
   }
 
   start() {
@@ -40,11 +41,26 @@ class AsteriskCallEngine {
       this.sweepExpired().catch((error) => this.logger.error("Falha na varredura de chamadas:", error.message));
     }, 1_000);
     this.sweepTimer.unref?.();
+    void this.sweepExpiredRecordings().catch((error) => this.logger.error("Falha na retenção de gravações:", error.message));
+    this.recordingSweepTimer = setInterval(() => {
+      this.sweepExpiredRecordings().catch((error) => this.logger.error("Falha na retenção de gravações:", error.message));
+    }, 60 * 60_000);
+    this.recordingSweepTimer.unref?.();
   }
 
   stop() {
     if (this.sweepTimer) clearInterval(this.sweepTimer);
+    if (this.recordingSweepTimer) clearInterval(this.recordingSweepTimer);
     this.sweepTimer = null;
+    this.recordingSweepTimer = null;
+  }
+
+  recordingMetadata(name, now = new Date()) {
+    return {
+      localPath: `${this.config.recordingsPath}/${name}.wav`,
+      verifiedAt: now,
+      retentionDeleteAfter: new Date(now.getTime() + this.config.recordingRetentionDays * 86_400_000),
+    };
   }
 
   async pendingIntent(event) {
@@ -210,8 +226,9 @@ class AsteriskCallEngine {
   async handleRecordingFinished(event) {
     const name = event.recording?.name;
     if (!name) return;
+    const now = new Date();
     await this.database.callRecording.updateMany({
-      where: { name }, data: { status: "STORED_LOCAL", lastError: null },
+      where: { name }, data: { status: "STORED_LOCAL", ...this.recordingMetadata(name, now), lastError: null },
     });
   }
 
@@ -230,7 +247,7 @@ class AsteriskCallEngine {
       try {
         await this.client.get(`/recordings/stored/${name}`);
         await this.database.callRecording.update({
-          where: { callId: call.id }, data: { status: "STORED_LOCAL", lastError: null },
+          where: { callId: call.id }, data: { status: "STORED_LOCAL", ...this.recordingMetadata(call.recording.name), lastError: null },
         });
       } catch (storedError) {
         await this.database.callRecording.update({
@@ -290,6 +307,31 @@ class AsteriskCallEngine {
       const status = call.status === "READY" ? "CANCELED" : call.status === "CONNECTED" ? "ENDED" : "NO_ANSWER";
       await this.cleanup(call.id, status, "Tempo máximo da chamada atingido.", { hangupInitiator: "system" });
     }
+  }
+
+  async sweepExpiredRecordings(now = new Date()) {
+    const recordings = await this.database.callRecording.findMany({
+      where: { status: "STORED_LOCAL", retentionDeleteAfter: { lte: now } },
+      orderBy: { retentionDeleteAfter: "asc" },
+      take: 100,
+    });
+    for (const recording of recordings) {
+      try {
+        await this.client.delete(`/recordings/stored/${encodeURIComponent(recording.name)}`);
+      } catch (error) {
+        if (!(error instanceof AriRequestError) || error.status !== 404) {
+          await this.database.callRecording.update({
+            where: { id: recording.id }, data: { lastError: error.message },
+          });
+          continue;
+        }
+      }
+      await this.database.callRecording.update({
+        where: { id: recording.id },
+        data: { status: "DELETED", deletedAt: now, lastError: null },
+      });
+    }
+    return recordings.length;
   }
 
   async onDisconnected() {

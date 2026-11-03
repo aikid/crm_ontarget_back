@@ -35,4 +35,28 @@ test("serializeLead mantém labels e campos esperados pelo frontend", () => {
   assert.equal(result.audit.status, "Confirmado");
   assert.equal(result.appointment.period, "Tarde");
   assert.deepEqual(result.history[0].sdr, { id: "sdr", name: "Ana Souza", initials: "AS" });
+  assert.deepEqual(result.recordings, []);
+});
+
+test("serializeLead só expõe gravações locais válidas quando solicitado pelo gestor", () => {
+  const base = {
+    id: "lead", clientId: "client", campaignId: "campaign", storeId: "store", name: "João Pereira",
+    phone: "+5561999998877", vehicle: null, origin: "Site", reason: null, status: "PENDING", attempts: 0,
+    lastContact: null, createdAt: new Date("2026-11-01T12:00:00Z"), store: { id: "store", shortName: "SIA" },
+    campaign: { id: "campaign", name: "Campanha" }, attemptRecords: [], callback: null, appointment: null,
+    qualification: null, audit: null, reservedById: null, reservedBy: null,
+    calls: [{
+      id: "call-1", durationSec: 42,
+      recording: {
+        status: "STORED_LOCAL", createdAt: new Date("2026-11-01T12:02:00Z"),
+        verifiedAt: new Date("2026-11-01T12:03:00Z"), retentionDeleteAfter: new Date(Date.now() + 86_400_000),
+      },
+    }],
+  };
+  assert.equal(serializeLead(base).recordingAvailable, false);
+  assert.deepEqual(serializeLead(base).recordings, []);
+  const managerView = serializeLead(base, { includeRecordings: true });
+  assert.equal(managerView.recordingAvailable, true);
+  assert.equal(managerView.recordings[0].callId, "call-1");
+  assert.equal("localPath" in managerView.recordings[0], false);
 });

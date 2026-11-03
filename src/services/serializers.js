@@ -66,7 +66,20 @@ function serializeCampaign(campaign) {
   };
 }
 
-function serializeLead(lead) {
+function serializeLead(lead, { includeRecordings = false } = {}) {
+  const now = new Date();
+  const recordings = includeRecordings
+    ? (lead.calls || [])
+      .filter((call) => call.recording?.status === "STORED_LOCAL"
+        && (!call.recording.retentionDeleteAfter || call.recording.retentionDeleteAfter > now))
+      .map((call) => ({
+        callId: call.id,
+        status: call.recording.status,
+        recordedAt: call.recording.verifiedAt || call.recording.createdAt,
+        durationSec: call.durationSec,
+        expiresAt: call.recording.retentionDeleteAfter,
+      }))
+    : [];
   return {
     id: lead.id,
     clientId: lead.clientId,
@@ -123,7 +136,8 @@ function serializeLead(lead) {
       evidence: lead.audit.evidence,
       auditedAt: dateTime(lead.audit.auditedAt),
     } : { status: "Não auditado" },
-    recordingAvailable: Boolean((lead.calls || []).some((call) => call.recordingUrl)),
+    recordingAvailable: recordings.length > 0,
+    recordings,
     reservation: lead.reservedById ? {
       sdr: lead.reservedBy,
       reservedAt: lead.reservedAt,
