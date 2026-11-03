@@ -19,7 +19,7 @@ function leadWhere(campaignId, query) {
   if (query.storeId && query.storeId !== "all") where.storeId = query.storeId;
   if (query.status && query.status !== "all") where.status = String(query.status).toUpperCase();
   if (query.vehicle && query.vehicle !== "all") where.vehicle = query.vehicle;
-  if (query.audit && query.audit !== "all") where.audit = { status: query.audit };
+  if (query.audit && query.audit !== "all") where.audits = { some: { status: query.audit } };
   if (query.seller && query.seller !== "all") where.appointment = { seller: query.seller };
   if (query.search) {
     where.OR = [

@@ -109,7 +109,7 @@ async function main() {
         ...(appointment ? { appointment: { create: { ...appointment, date: at(appointment.date) } } } : {}),
         ...(qualification ? { qualification: { create: qualification } } : {}),
         ...(callback ? { callback: { create: { ...callback, scheduledAt: at(callback.scheduledAt), assignedToId: "user-sdr-ana" } } } : {}),
-        audit: { create: { ...audit, ...(audit.auditedAt ? { auditedAt: at(audit.auditedAt) } : {}) } },
+        audits: { create: { ...audit, classification: audit.status, ...(audit.auditedAt ? { auditedAt: at(audit.auditedAt) } : {}) } },
       },
     });
   }

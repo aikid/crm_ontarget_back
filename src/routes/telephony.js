@@ -5,7 +5,7 @@ const env = require("../config/env");
 const prisma = require("../lib/prisma");
 const { HttpError, required } = require("../lib/http-error");
 const { leadForAuth } = require("../auth/access");
-const { requireAuth, requireCsrf, requireRole } = require("../middleware/auth");
+const { requireAuth, requireCsrf, requireManagerOrAuditIntegration, requireRole } = require("../middleware/auth");
 const threeCx = require("../services/three-cx");
 const callState = require("../services/telephony-state");
 const asteriskRuntime = require("../services/asterisk/runtime-state");
@@ -98,7 +98,7 @@ router.get("/asterisk/calls/:callId", requireAuth, requireRole("SDR"), async (re
   response.json(publicAsteriskCall(call));
 });
 
-router.get("/asterisk/calls/:callId/recording", requireAuth, requireRole("GESTOR"), async (request, response) => {
+router.get("/asterisk/calls/:callId/recording", requireManagerOrAuditIntegration, async (request, response) => {
   const call = await prisma.call.findFirst({
     where: { id: request.params.callId, provider: "asterisk" },
     include: { recording: true },

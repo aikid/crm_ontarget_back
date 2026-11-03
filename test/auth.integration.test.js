@@ -495,16 +495,20 @@ test("reserva um único lead sob concorrência e exige o SDR proprietário", asy
     });
     assert.equal(foreignOutcome.status, 409);
 
+    const linkedCall = await prisma.call.create({
+      data: { leadId: claimed.id, sdrId: winner.body.user.id, provider: "asterisk", status: "ENDED", endedAt: new Date() },
+    });
     const ownOutcome = await request(`/api/leads/${claimed.id}/outcomes`, {
       method: "POST",
       headers: { Cookie: winner.cookie, "X-CSRF-Token": winner.body.csrfToken },
-      body: JSON.stringify({ outcome: "NO_ANSWER", notes: "Sem resposta" }),
+      body: JSON.stringify({ outcome: "NO_ANSWER", notes: "Sem resposta", callId: linkedCall.id }),
     });
     assert.equal(ownOutcome.status, 201);
     const updated = await ownOutcome.json();
     assert.equal(updated.attempts, 1);
     assert.equal(updated.statusCode, "PENDING");
     assert.equal(updated.reservation, null);
+    assert.ok((await prisma.call.findUnique({ where: { id: linkedCall.id } })).attemptId);
   } finally {
     await cleanupQueueFixture(fixture);
     await cleanupTestSdrs(firstSdr.user, secondSdr.user);
@@ -636,4 +640,72 @@ test("somente gestor pode consultar ou baixar gravações", async () => {
   assert.equal((await request(path, { headers: { Cookie: portal.cookie } })).status, 403);
   assert.equal((await request(path, { headers: { Cookie: sdr.cookie } })).status, 403);
   assert.equal((await request(path, { headers: { Cookie: manager.cookie } })).status, 404);
+});
+
+test("integração Python lista gravações e salva auditoria sem duplicidade", async () => {
+  const fixture = await createQueueFixture(1);
+  const token = "token-tecnico-de-auditoria-com-mais-de-32-caracteres";
+  const previousToken = env.auditIntegration.token;
+  env.auditIntegration.token = token;
+  try {
+    const attempt = await prisma.attempt.create({
+      data: {
+        leadId: fixture.leads[0].id,
+        sdrId: "user-sdr-ana",
+        sequence: 1,
+        outcome: "DIRECTED",
+        notes: "Cliente direcionado",
+      },
+    });
+    const call = await prisma.call.create({
+      data: {
+        leadId: fixture.leads[0].id,
+        sdrId: "user-sdr-ana",
+        attemptId: attempt.id,
+        provider: "asterisk",
+        status: "ENDED",
+        durationSec: 42,
+        endedAt: new Date(),
+        recording: {
+          create: {
+            name: `call-audit-${Date.now()}`,
+            status: "STORED_LOCAL",
+            verifiedAt: new Date(),
+            retentionDeleteAfter: new Date(Date.now() + 60 * 86_400_000),
+          },
+        },
+      },
+      include: { recording: true },
+    });
+    const headers = { Authorization: `Bearer ${token}` };
+    assert.equal((await request("/api/integrations/audit/recordings", {
+      headers: { Authorization: "Bearer inválido" },
+    })).status, 401);
+    const pendingResponse = await request("/api/integrations/audit/recordings", { headers });
+    assert.equal(pendingResponse.status, 200);
+    const pending = await pendingResponse.json();
+    const item = pending.data.find((entry) => entry.recordingId === call.recording.id);
+    assert.equal(item.callId, call.id);
+    assert.equal(item.attemptId, attempt.id);
+    assert.equal(item.attempt.outcome, "DIRECTED");
+
+    const payload = JSON.stringify({
+      classification: "confirmed",
+      confidence: 94,
+      evidence: "Cliente confirmou interesse.",
+      observations: "Encaminhar ao vendedor.",
+      modelVersion: "auditor-python-v1",
+    });
+    const endpoint = `/api/integrations/audit/recordings/${call.recording.id}/audit`;
+    assert.equal((await request(endpoint, { method: "PUT", headers, body: payload })).status, 201);
+    assert.equal((await request(endpoint, { method: "PUT", headers, body: payload })).status, 200);
+    assert.equal(await prisma.audit.count({ where: { recordingId: call.recording.id } }), 1);
+
+    const afterAudit = await request("/api/integrations/audit/recordings", { headers });
+    assert.equal((await afterAudit.json()).data.some((entry) => entry.recordingId === call.recording.id), false);
+    assert.equal((await request("/api/telephony/asterisk/calls/inexistente/recording", { headers })).status, 404);
+  } finally {
+    env.auditIntegration.token = previousToken;
+    await cleanupQueueFixture(fixture);
+  }
 });

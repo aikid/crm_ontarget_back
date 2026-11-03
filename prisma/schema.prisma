@@ -238,7 +238,7 @@ model Lead {
   callback       Callback?
   appointment    Appointment?
   qualification  Qualification?
-  audit          Audit?
+  audits         Audit[]
   importBatchId  String?
   importRow      Int?
   importBatch    ImportBatch?   @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
@@ -262,6 +262,8 @@ model Attempt {
   createdAt  DateTime       @default(now())
   lead       Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
   sdr        User           @relation(fields: [sdrId], references: [id], onDelete: Restrict)
+  calls      Call[]
+  audits     Audit[]
 
   @@unique([leadId, sequence])
   @@index([sdrId, createdAt])
@@ -309,6 +311,7 @@ model Call {
   id                 String         @id @default(cuid())
   leadId             String
   sdrId              String?
+  attemptId          String?        @unique
   provider           String         @default("asterisk")
   providerSid        String?
   idempotencyKey     String?
@@ -336,8 +339,10 @@ model Call {
   updatedAt          DateTime       @updatedAt
   lead               Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
   sdr                User?          @relation(fields: [sdrId], references: [id])
+  attempt            Attempt?       @relation(fields: [attemptId], references: [id], onDelete: SetNull)
   events             CallEvent[]
   recording          CallRecording?
+  audits             Audit[]
 
   @@unique([sdrId, idempotencyKey])
   @@index([leadId, startedAt])
@@ -384,6 +389,7 @@ model CallRecording {
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
   call                 Call                @relation(fields: [callId], references: [id], onDelete: Cascade)
+  audit                Audit?
 
   @@index([status, createdAt])
   @@index([retentionDeleteAfter, status])
@@ -423,11 +429,26 @@ model Qualification {
 }
 
 model Audit {
-  id         String    @id @default(cuid())
-  leadId     String    @unique
-  status     String    @default("not_audited")
-  confidence Int?
-  evidence   String?
-  auditedAt  DateTime?
-  lead       Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  id             String         @id @default(cuid())
+  leadId         String
+  callId         String?
+  attemptId      String?
+  recordingId    String?        @unique
+  status         String         @default("not_audited")
+  classification String?
+  confidence     Int?
+  evidence       String?
+  observations   String?
+  modelVersion   String?
+  auditedAt      DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  lead           Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  call           Call?          @relation(fields: [callId], references: [id], onDelete: SetNull)
+  attempt        Attempt?       @relation(fields: [attemptId], references: [id], onDelete: SetNull)
+  recording      CallRecording? @relation(fields: [recordingId], references: [id], onDelete: SetNull)
+
+  @@index([leadId, auditedAt])
+  @@index([callId])
+  @@index([attemptId])
 }

@@ -281,6 +281,8 @@ CALL_RECORDING_RETENTION_DAYS=60
 
 O aviso de gravação não é reproduzido automaticamente: conforme a regra operacional vigente, ele deve ser informado verbalmente pelo SDR.
 
+A integração máquina-a-máquina para auditoria está documentada em [`docs/audit-python-api.md`](docs/audit-python-api.md). Ela utiliza Bearer token exclusivo, lista apenas gravações pendentes e registra o resultado de forma idempotente por gravação.
+
 O consumidor permanece desativado enquanto `ASTERISK_ENABLED=false`. Para a primeira validação real, abra o túnel SSH, configure as credenciais somente em `backend/.env` e então ative a integração. Não copie as credenciais para o frontend nem para este README.
 
 Durante o desenvolvimento local, o backend acessará a ARI privada da VM por túnel SSH:

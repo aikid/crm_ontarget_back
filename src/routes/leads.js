@@ -96,7 +96,7 @@ router.post("/:leadId/outcomes", requireRole("SDR"), requireCsrf, async (request
       ? (sequence >= 3 ? "EXHAUSTED" : "PENDING")
       : leadStatusByOutcome[outcome];
 
-    await tx.attempt.create({
+    const attempt = await tx.attempt.create({
       data: {
         leadId,
         sdrId: request.auth.user.id,
@@ -147,8 +147,9 @@ router.post("/:leadId/outcomes", requireRole("SDR"), requireCsrf, async (request
 
     if (request.body.callId) {
       await tx.call.updateMany({
-        where: { id: request.body.callId, leadId, sdrId: request.auth.user.id },
+        where: { id: request.body.callId, leadId, sdrId: request.auth.user.id, attemptId: null },
         data: {
+          attemptId: attempt.id,
           result: legacyCallResult[outcome],
           detail: notes,
           durationSec: Number.isInteger(request.body.durationSec) ? request.body.durationSec : undefined,

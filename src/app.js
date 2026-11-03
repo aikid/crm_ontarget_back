@@ -11,6 +11,7 @@ const leadRoutes = require("./routes/leads");
 const sdrRoutes = require("./routes/sdr");
 const telephonyRoutes = require("./routes/telephony");
 const operationRoutes = require("./routes/operations");
+const auditIntegrationRoutes = require("./routes/audit-integration");
 const asteriskRuntime = require("./services/asterisk/runtime-state");
 const { sipConfigurationStatus } = require("./services/asterisk/sip-accounts");
 const { requireAuth } = require("./middleware/auth");
@@ -33,13 +34,14 @@ app.get("/health", (_request, response) => response.json({
   telephony: { asterisk: { ...asteriskRuntime.snapshot(), sip: sipConfigurationStatus() } },
 }));
 app.use("/api/auth", authRoutes);
+app.use("/api/integrations/audit", auditIntegrationRoutes);
 app.use("/api/admin/imports", requireAuth, importRoutes);
 app.use("/api/admin", requireAuth, adminRoutes);
+app.use("/api/telephony", telephonyRoutes);
 app.use("/api", requireAuth, catalogRoutes);
 app.use("/api/campaigns", requireAuth, campaignRoutes);
 app.use("/api/leads", requireAuth, leadRoutes);
 app.use("/api/sdr", requireAuth, sdrRoutes);
-app.use("/api/telephony", telephonyRoutes);
 app.use("/api/operations", requireAuth, operationRoutes);
 app.use(notFound);
 app.use(errorHandler);

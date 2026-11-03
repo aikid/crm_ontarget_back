@@ -24,6 +24,9 @@ module.exports = {
   googleSheets: {
     serviceAccountJson: process.env.GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON,
   },
+  auditIntegration: {
+    token: process.env.AUDIT_INTEGRATION_TOKEN,
+  },
   session: {
     cookieName: process.env.SESSION_COOKIE_NAME || "ontarget.sid",
     ttlHours: Number(process.env.SESSION_TTL_HOURS || 12),

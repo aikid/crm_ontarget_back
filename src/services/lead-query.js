@@ -12,7 +12,7 @@ const leadInclude = {
   callback: true,
   appointment: true,
   qualification: true,
-  audit: true,
+  audits: { orderBy: [{ auditedAt: "desc" }, { createdAt: "desc" }], take: 1 },
 };
 
 async function findLead(id) {
