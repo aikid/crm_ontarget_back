@@ -4,9 +4,15 @@ const { z } = require("zod");
 const prisma = require("../lib/prisma");
 const { HttpError } = require("../lib/http-error");
 const { verifyPassword } = require("../auth/password");
+const {
+  createPasswordResetToken,
+  discardPasswordResetToken,
+  resetPassword,
+} = require("../auth/password-reset");
 const { createSession, expiredSessionCookie, sessionCookie } = require("../auth/session");
 const { publicUser } = require("../auth/user");
 const { requireAuth, requireCsrf } = require("../middleware/auth");
+const { requireEmailConfiguration, sendPasswordEmail } = require("../services/email");
 
 const router = express.Router();
 const credentialsSchema = z.object({
@@ -19,6 +25,20 @@ const loginLimiter = rateLimit({
   standardHeaders: "draft-8",
   legacyHeaders: false,
   message: { error: { message: "Muitas tentativas de login. Aguarde alguns minutos." } },
+});
+const recoveryLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { error: { message: "Muitas solicitações de recuperação. Aguarde alguns minutos." } },
+});
+const forgotPasswordSchema = z.object({
+  email: z.string().trim().email("Informe um e-mail válido.").transform((value) => value.toLowerCase()),
+});
+const resetPasswordSchema = z.object({
+  token: z.string().min(32).max(256),
+  password: z.string().min(8, "A senha deve ter pelo menos 8 caracteres.").max(128),
 });
 
 router.post("/login", loginLimiter, async (request, response) => {
@@ -39,6 +59,33 @@ router.post("/login", loginLimiter, async (request, response) => {
 
   response.setHeader("Set-Cookie", sessionCookie(token));
   response.json({ user: publicUser(user), csrfToken });
+});
+
+router.post("/forgot-password", recoveryLimiter, async (request, response, next) => {
+  const data = forgotPasswordSchema.parse(request.body);
+  requireEmailConfiguration();
+  await prisma.passwordResetToken.deleteMany({ where: { expiresAt: { lte: new Date() } } });
+  const user = await prisma.user.findUnique({ where: { email: data.email } });
+
+  if (user?.active) {
+    const { token } = await createPasswordResetToken(user.id);
+    try {
+      await sendPasswordEmail({ user, token });
+    } catch (error) {
+      await discardPasswordResetToken(token);
+      return next(error);
+    }
+  }
+
+  return response.status(202).json({
+    message: "Se existir uma conta ativa para este e-mail, enviaremos as instruções de recuperação.",
+  });
+});
+
+router.post("/reset-password", recoveryLimiter, async (request, response) => {
+  const data = resetPasswordSchema.parse(request.body);
+  await resetPassword(data.token, data.password);
+  response.json({ message: "Senha alterada com sucesso. Entre novamente com a nova senha." });
 });
 
 router.get("/session", requireAuth, (request, response) => {

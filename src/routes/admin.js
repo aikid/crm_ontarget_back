@@ -2,9 +2,12 @@ const express = require("express");
 const crypto = require("node:crypto");
 const { z } = require("zod");
 const prisma = require("../lib/prisma");
+const env = require("../config/env");
 const { hashPassword } = require("../auth/password");
+const { createPasswordResetToken, discardPasswordResetToken } = require("../auth/password-reset");
 const { HttpError } = require("../lib/http-error");
 const { requireCsrf, requireRole } = require("../middleware/auth");
+const { requireEmailConfiguration, sendPasswordEmail } = require("../services/email");
 
 const router = express.Router();
 router.use(requireRole("GESTOR"));
@@ -60,7 +63,7 @@ function initials(value) {
   return value.split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase();
 }
 
-function temporaryPassword() {
+function unavailableInitialPassword() {
   return `${crypto.randomBytes(12).toString("base64url")}A1!`;
 }
 
@@ -105,8 +108,9 @@ router.patch("/clients/:id", async (request, response) => {
   response.json(await prisma.client.update({ where: { id }, data }));
 });
 
-router.post("/clients/:id/access", async (request, response) => {
+router.post("/clients/:id/access", async (request, response, next) => {
   const { id } = idParams.parse(request.params);
+  requireEmailConfiguration();
   const client = await prisma.client.findUnique({ where: { id } });
   if (!client) throw new HttpError(404, "Cliente não encontrado.");
   if (!client.active) throw new HttpError(409, "Ative o cliente antes de gerar o acesso ao Portal.");
@@ -121,11 +125,8 @@ router.post("/clients/:id/access", async (request, response) => {
   }
 
   const portalUser = emailOwner?.role === "CLIENT" && emailOwner.clientId === id ? emailOwner : linkedPortalUser;
-  const passwordValue = temporaryPassword();
-  const passwordHash = await hashPassword(passwordValue);
   const user = await prisma.$transaction(async (transaction) => {
     if (portalUser) {
-      await transaction.authSession.deleteMany({ where: { userId: portalUser.id } });
       return transaction.user.update({
         where: { id: portalUser.id },
         data: {
@@ -135,7 +136,6 @@ router.post("/clients/:id/access", async (request, response) => {
           initials: initials(client.name),
           role: "CLIENT",
           active: true,
-          passwordHash,
         },
       });
     }
@@ -147,14 +147,23 @@ router.post("/clients/:id/access", async (request, response) => {
         initials: initials(client.name),
         role: "CLIENT",
         active: true,
-        passwordHash,
+        passwordHash: await hashPassword(unavailableInitialPassword()),
       },
     });
   });
 
-  response.json({
+  const { token } = await createPasswordResetToken(user.id);
+  try {
+    await sendPasswordEmail({ user, token, access: true });
+  } catch (error) {
+    await discardPasswordResetToken(token);
+    return next(error);
+  }
+
+  return response.json({
     email: user.email,
-    temporaryPassword: passwordValue,
+    emailSent: true,
+    expiresInMinutes: env.email.resetTtlMinutes,
     userId: user.id,
   });
 });

@@ -27,6 +27,17 @@ module.exports = {
   auditIntegration: {
     token: process.env.AUDIT_INTEGRATION_TOKEN,
   },
+  email: {
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: process.env.SMTP_SECURE === "true",
+    user: process.env.SMTP_USER,
+    password: process.env.SMTP_PASSWORD,
+    from: process.env.SMTP_FROM,
+    resetUrl: process.env.PASSWORD_RESET_URL,
+    resetTtlMinutes: Math.min(120, Math.max(10, Number(process.env.PASSWORD_RESET_TTL_MINUTES || 30))),
+    jsonTransport: process.env.NODE_ENV === "test" && process.env.EMAIL_JSON_TRANSPORT === "true",
+  },
   session: {
     cookieName: process.env.SESSION_COOKIE_NAME || "ontarget.sid",
     ttlHours: Number(process.env.SESSION_TTL_HOURS || 12),

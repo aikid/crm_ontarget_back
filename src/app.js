@@ -14,6 +14,7 @@ const operationRoutes = require("./routes/operations");
 const auditIntegrationRoutes = require("./routes/audit-integration");
 const asteriskRuntime = require("./services/asterisk/runtime-state");
 const { sipConfigurationStatus } = require("./services/asterisk/sip-accounts");
+const { isEmailConfigured } = require("./services/email");
 const { requireAuth } = require("./middleware/auth");
 const { notFound, errorHandler } = require("./middleware/errors");
 
@@ -31,6 +32,7 @@ app.use("/api", (_request, response, next) => {
 app.get("/health", (_request, response) => response.json({
   status: "ok",
   service: "ontarget-api",
+  email: { configured: isEmailConfigured() },
   telephony: { asterisk: { ...asteriskRuntime.snapshot(), sip: sipConfigurationStatus() } },
 }));
 app.use("/api/auth", authRoutes);

@@ -40,22 +40,23 @@ model Store {
 }
 
 model User {
-  id            String        @id @default(cuid())
-  clientId      String?
-  name          String
-  email         String        @unique
-  initials      String
-  passwordHash  String
-  role          UserRole
-  active        Boolean       @default(true)
-  lastLoginAt   DateTime?
-  client        Client?       @relation(fields: [clientId], references: [id])
-  calls         Call[]
-  attempts      Attempt[]
-  callbacks     Callback[]
-  reservedLeads Lead[]        @relation("LeadReservation")
-  sessions      AuthSession[]
-  imports       ImportBatch[]
+  id                  String               @id @default(cuid())
+  clientId            String?
+  name                String
+  email               String               @unique
+  initials            String
+  passwordHash        String
+  role                UserRole
+  active              Boolean              @default(true)
+  lastLoginAt         DateTime?
+  client              Client?              @relation(fields: [clientId], references: [id])
+  calls               Call[]
+  attempts            Attempt[]
+  callbacks           Callback[]
+  reservedLeads       Lead[]               @relation("LeadReservation")
+  sessions            AuthSession[]
+  passwordResetTokens PasswordResetToken[]
+  imports             ImportBatch[]
 
   @@index([clientId])
 }
@@ -134,6 +135,19 @@ model AuthSession {
   createdAt  DateTime @default(now())
   lastSeenAt DateTime @default(now())
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([expiresAt])

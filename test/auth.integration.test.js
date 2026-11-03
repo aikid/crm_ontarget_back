@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const app = require("../src/app");
 const prisma = require("../src/lib/prisma");
 const { hashPassword, verifyPassword } = require("../src/auth/password");
+const { tokenHash } = require("../src/auth/password-reset");
 const env = require("../src/config/env");
 const { sessionCookie } = require("../src/auth/session");
 
@@ -10,6 +11,9 @@ let server;
 let baseUrl;
 
 test.before(async () => {
+  env.email.jsonTransport = true;
+  env.email.from = "SysOn Teste <nao-responda@example.test>";
+  env.email.resetUrl = "http://localhost:3000";
   await new Promise((resolve) => {
     server = app.listen(0, "127.0.0.1", () => {
       baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -80,6 +84,53 @@ test("rejeita credenciais inválidas e não expõe o hash da senha", async () =>
   assert.equal("passwordHash" in body.user, false);
   assert.match(cookie, /^ontarget\.sid=/);
   assert.ok(body.csrfToken);
+});
+
+test("recupera a senha sem revelar se o e-mail está cadastrado e invalida o link após o uso", async () => {
+  const user = await prisma.user.findUnique({ where: { email: "ana@ontarget.com.br" } });
+  const originalPasswordHash = user.passwordHash;
+  const rawToken = `reset-${Date.now()}-${"x".repeat(32)}`;
+  try {
+    const existing = await request("/api/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email: user.email }),
+    });
+    assert.equal(existing.status, 202);
+
+    const missing = await request("/api/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email: `ausente-${Date.now()}@example.test` }),
+    });
+    assert.equal(missing.status, 202);
+    assert.deepEqual(await missing.json(), await existing.json());
+
+    await prisma.passwordResetToken.deleteMany({ where: { userId: user.id } });
+    await prisma.passwordResetToken.create({
+      data: {
+        userId: user.id,
+        tokenHash: tokenHash(rawToken),
+        expiresAt: new Date(Date.now() + 10 * 60_000),
+      },
+    });
+
+    const changed = await request("/api/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({ token: rawToken, password: "NovaSenha@123" }),
+    });
+    assert.equal(changed.status, 200);
+    const changedUser = await prisma.user.findUnique({ where: { id: user.id } });
+    assert.equal(await verifyPassword("NovaSenha@123", changedUser.passwordHash), true);
+
+    const reused = await request("/api/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({ token: rawToken, password: "OutraSenha@123" }),
+    });
+    assert.equal(reused.status, 400);
+  } finally {
+    await prisma.user.update({ where: { id: user.id }, data: { passwordHash: originalPasswordHash } });
+    await prisma.passwordResetToken.deleteMany({ where: { userId: user.id } });
+    loginCache.delete(user.email);
+  }
 });
 
 test("emite cookie particionado na configuração cross-site de produção", () => {
@@ -257,11 +308,11 @@ test("gestor mantém a hierarquia cliente, loja, campanha e usuário", async () 
     const access = await accessResponse.json();
     accessUserId = access.userId;
     assert.equal(access.email, createdClient.email);
-    assert.ok(access.temporaryPassword.length >= 12);
+    assert.equal(access.emailSent, true);
     const accessUser = await prisma.user.findUnique({ where: { id: accessUserId } });
     assert.equal(accessUser.role, "CLIENT");
     assert.equal(accessUser.clientId, clientId);
-    assert.equal(await verifyPassword(access.temporaryPassword, accessUser.passwordHash), true);
+    assert.equal(await prisma.passwordResetToken.count({ where: { userId: accessUserId, usedAt: null } }), 1);
 
     const storeResponse = await request("/api/admin/stores", {
       method: "POST",
