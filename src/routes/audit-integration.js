@@ -107,10 +107,17 @@ router.put("/recordings/:recordingId/audit", async (request, response) => {
     modelVersion,
     auditedAt,
   };
-  const audit = await prisma.audit.upsert({
-    where: { recordingId: recording.id },
-    create: { recordingId: recording.id, ...values },
-    update: values,
+  const audit = await prisma.$transaction(async (transaction) => {
+    const saved = await transaction.audit.upsert({
+      where: { recordingId: recording.id },
+      create: { recordingId: recording.id, ...values },
+      update: values,
+    });
+    await transaction.lead.update({
+      where: { id: recording.call.leadId },
+      data: { audit: classification, auditNotes: observations },
+    });
+    return saved;
   });
   response.status(recording.audit ? 200 : 201).json({
     id: audit.id,

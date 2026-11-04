@@ -68,7 +68,7 @@ function serializeCampaign(campaign) {
 
 function serializeLead(lead, { includeRecordings = false } = {}) {
   const now = new Date();
-  const audit = lead.audits?.[0] || lead.audit || null;
+  const latestAudit = lead.audits?.[0] || null;
   const recordings = includeRecordings
     ? (lead.calls || [])
       .filter((call) => call.recording?.status === "STORED_LOCAL"
@@ -94,6 +94,8 @@ function serializeLead(lead, { includeRecordings = false } = {}) {
     vehicle: lead.vehicle,
     origin: lead.origin,
     reason: lead.reason,
+    auditNotes: lead.auditNotes ?? latestAudit?.observations ?? null,
+    sellerOption: lead.sellerOption,
     storeId: lead.storeId,
     store: lead.store,
     campaign: lead.campaign,
@@ -131,11 +133,11 @@ function serializeLead(lead, { includeRecordings = false } = {}) {
       date: dateTime(lead.qualification.createdAt),
       notes: lead.qualification.notes,
     } : null,
-    audit: audit ? {
-      status: auditLabels[audit.status] || audit.status,
-      confidence: audit.confidence,
-      evidence: audit.evidence,
-      auditedAt: dateTime(audit.auditedAt),
+    audit: lead.audit || latestAudit ? {
+      status: auditLabels[lead.audit || latestAudit?.status] || lead.audit || latestAudit?.status,
+      confidence: latestAudit?.confidence ?? null,
+      evidence: latestAudit?.evidence ?? null,
+      auditedAt: dateTime(latestAudit?.auditedAt),
     } : { status: "Não auditado" },
     recordingAvailable: recordings.length > 0,
     recordings,

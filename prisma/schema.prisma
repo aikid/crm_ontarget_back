@@ -234,6 +234,9 @@ model Lead {
   vehicle        String?
   origin         String
   reason         String?
+  audit          String?
+  auditNotes     String?
+  sellerOption   String?
   status         LeadStatus     @default(PENDING)
   attempts       Int            @default(0)
   lastContact    DateTime?

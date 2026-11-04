@@ -447,7 +447,6 @@ test("importa telefones repetidos e rejeita somente linhas inválidas", async ()
   const { body, cookie } = await login("carlos@ontarget.com.br");
   const form = new FormData();
   form.set("clientId", "BRASAL");
-  form.set("storeId", "BRASAL-SIA");
   form.set("campaignId", "FEIRAO-VW-AGO");
   form.set("file", new Blob([[
     "Ação;Numero;Nome Cliente;ORIGEM;DIA DA AÇÃO",
@@ -782,6 +781,21 @@ test("integração Python lista gravações e salva auditoria sem duplicidade", 
     assert.equal((await request(endpoint, { method: "PUT", headers, body: payload })).status, 201);
     assert.equal((await request(endpoint, { method: "PUT", headers, body: payload })).status, 200);
     assert.equal(await prisma.audit.count({ where: { recordingId: call.recording.id } }), 1);
+    const auditedLead = await prisma.lead.findUnique({ where: { id: fixture.leads[0].id } });
+    assert.equal(auditedLead.audit, "confirmed");
+    assert.equal(auditedLead.auditNotes, "Encaminhar ao vendedor.");
+
+    const manager = await login("carlos@ontarget.com.br");
+    const edited = await request(`/api/operations/leads/${fixture.leads[0].id}/audit-fields`, {
+      method: "PATCH",
+      headers: { Cookie: manager.cookie, "X-CSRF-Token": manager.body.csrfToken },
+      body: JSON.stringify({ auditNotes: "Revisado pelo gestor.", sellerOption: "0km" }),
+    });
+    assert.equal(edited.status, 200);
+    const editedLead = await edited.json();
+    assert.equal(editedLead.audit.status, "Confirmado");
+    assert.equal(editedLead.auditNotes, "Revisado pelo gestor.");
+    assert.equal(editedLead.sellerOption, "0km");
 
     const afterAudit = await request("/api/integrations/audit/recordings", { headers });
     assert.equal((await afterAudit.json()).data.some((entry) => entry.recordingId === call.recording.id), false);

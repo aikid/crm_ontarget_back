@@ -1,7 +1,8 @@
 const express = require("express");
+const { z } = require("zod");
 const prisma = require("../lib/prisma");
 const { HttpError } = require("../lib/http-error");
-const { requireRole } = require("../middleware/auth");
+const { requireCsrf, requireRole } = require("../middleware/auth");
 const { leadInclude } = require("../services/lead-query");
 const { serializeLead } = require("../services/serializers");
 
@@ -9,6 +10,17 @@ const router = express.Router();
 router.use(requireRole("GESTOR"));
 
 const statuses = new Set(["PENDING", "CALLBACK", "CONTACTED", "QUALIFIED", "DIRECTED", "NOT_QUALIFIED", "REFUSED", "EXHAUSTED", "INVALID_NUMBER"]);
+const nullableText = (max) => z.preprocess(
+  (value) => value === "" ? null : value,
+  z.string().trim().max(max).nullable().optional(),
+);
+const auditFieldsSchema = z.object({
+  auditNotes: nullableText(10_000),
+  sellerOption: z.preprocess(
+    (value) => value === "" ? null : value,
+    z.enum(["Venda direta", "0km", "Usado", "Consórcio"]).nullable().optional(),
+  ),
+}).refine((data) => data.auditNotes !== undefined || data.sellerOption !== undefined);
 const nonContacts = new Set(["NO_ANSWER", "INVALID_NUMBER"]);
 const outcomeMeta = {
   NO_ANSWER: { label: "Não atendeu", color: "#a9afbb" },
@@ -188,6 +200,21 @@ router.get("/leads", async (request, response) => {
     data: leads.map((lead) => serializeLead(lead, { includeRecordings: true })),
     pagination: { page, pageSize, total, pages: Math.ceil(total / pageSize) },
   });
+});
+
+router.patch("/leads/:id/audit-fields", requireCsrf, async (request, response) => {
+  const data = auditFieldsSchema.parse(request.body);
+  const current = await prisma.lead.findUnique({ where: { id: request.params.id }, select: { id: true } });
+  if (!current) throw new HttpError(404, "Lead não encontrado.");
+  const lead = await prisma.lead.update({
+    where: { id: current.id },
+    data: {
+      ...(data.auditNotes !== undefined ? { auditNotes: data.auditNotes } : {}),
+      ...(data.sellerOption !== undefined ? { sellerOption: data.sellerOption } : {}),
+    },
+    include: leadInclude,
+  });
+  response.json(serializeLead(lead, { includeRecordings: true }));
 });
 
 module.exports = router;

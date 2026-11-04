@@ -12,7 +12,7 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024, files: 1 },
 });
-const targetSchema = z.object({ clientId: z.string().min(1), storeId: z.string().min(1), campaignId: z.string().min(1) });
+const targetSchema = z.object({ clientId: z.string().min(1), campaignId: z.string().min(1) });
 const googleSheetsSchema = targetSchema.extend({
   spreadsheetUrl: z.string().trim().min(1),
   sheetName: z.string().trim().max(100).optional(),
@@ -59,13 +59,12 @@ async function findTargetCampaign(target) {
     where: {
       id: target.campaignId,
       clientId: target.clientId,
-      storeId: target.storeId,
       status: "ACTIVE",
       client: { active: true },
       store: { active: true },
     },
   });
-  if (!campaign) throw new HttpError(400, "A campanha deve estar ativa e pertencer ao cliente e à loja selecionados.");
+  if (!campaign) throw new HttpError(400, "A ação deve estar ativa e pertencer ao cliente selecionado.");
   return campaign;
 }
 
