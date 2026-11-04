@@ -9,7 +9,7 @@ const { serializeLead } = require("../services/serializers");
 const router = express.Router();
 router.use(requireRole("GESTOR"));
 
-const statuses = new Set(["PENDING", "CALLBACK", "CONTACTED", "QUALIFIED", "DIRECTED", "NOT_QUALIFIED", "REFUSED", "EXHAUSTED", "INVALID_NUMBER"]);
+const statuses = new Set(["PENDING", "CALLBACK", "CONTACTED", "QUALIFIED", "DIRECTED", "SCHEDULED", "NOT_QUALIFIED", "REFUSED", "ALREADY_BOUGHT", "LIMBO", "FUTURE_INTEREST", "EXHAUSTED", "INVALID_NUMBER"]);
 const nullableText = (max) => z.preprocess(
   (value) => value === "" ? null : value,
   z.string().trim().max(max).nullable().optional(),
@@ -21,16 +21,21 @@ const auditFieldsSchema = z.object({
     z.enum(["Venda direta", "0km", "Usado", "Consórcio"]).nullable().optional(),
   ),
 }).refine((data) => data.auditNotes !== undefined || data.sellerOption !== undefined);
-const nonContacts = new Set(["NO_ANSWER", "INVALID_NUMBER"]);
+const nonContacts = new Set(["NO_ANSWER", "VOICEMAIL", "INVALID_NUMBER"]);
 const outcomeMeta = {
   NO_ANSWER: { label: "Não atendeu", color: "#a9afbb" },
-  INVALID_NUMBER: { label: "Número inválido", color: "#d96060" },
+  VOICEMAIL: { label: "Caixa Postal", color: "#a9afbb" },
+  INVALID_NUMBER: { label: "Número não existe", color: "#d96060" },
   REFUSED: { label: "Recusou", color: "#6f7786" },
   CONTACTED: { label: "Contato realizado", color: "#257e5f" },
   QUALIFIED: { label: "Qualificado", color: "#4158d5" },
   DIRECTED: { label: "Direcionado", color: "#4158d5" },
+  SCHEDULED: { label: "Agendado", color: "#2e9dcc" },
   NOT_QUALIFIED: { label: "Sem interesse", color: "#8a70c9" },
-  CALLBACK: { label: "Retorno solicitado", color: "#dd8b31" },
+  ALREADY_BOUGHT: { label: "Já comprou", color: "#6f7786" },
+  LIMBO: { label: "Limbo", color: "#6f7786" },
+  FUTURE_INTEREST: { label: "Interesse futuro", color: "#6f7786" },
+  CALLBACK: { label: "Retornar", color: "#dd8b31" },
 };
 
 function saoPauloDateKey() {
@@ -128,7 +133,7 @@ router.get("/dashboard", async (request, response) => {
   ]);
 
   const contacts = attempts.filter((attempt) => !nonContacts.has(attempt.outcome));
-  const qualified = attempts.filter((attempt) => ["QUALIFIED", "DIRECTED"].includes(attempt.outcome));
+  const qualified = attempts.filter((attempt) => ["QUALIFIED", "DIRECTED", "SCHEDULED"].includes(attempt.outcome));
   const grouped = new Map();
   attempts.forEach((attempt) => grouped.set(attempt.outcome, (grouped.get(attempt.outcome) || 0) + 1));
 
@@ -154,7 +159,7 @@ router.get("/dashboard", async (request, response) => {
   const ranking = agents.map((agent) => {
     const own = attempts.filter((attempt) => attempt.sdrId === agent.id);
     const ownContacts = own.filter((attempt) => !nonContacts.has(attempt.outcome));
-    const ownQualified = own.filter((attempt) => ["QUALIFIED", "DIRECTED"].includes(attempt.outcome));
+    const ownQualified = own.filter((attempt) => ["QUALIFIED", "DIRECTED", "SCHEDULED"].includes(attempt.outcome));
     return {
       ...agent,
       attempts: own.length,

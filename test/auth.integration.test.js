@@ -596,7 +596,7 @@ test("reserva um único lead sob concorrência e exige o SDR proprietário", asy
   }
 });
 
-test("limita três tentativas e mantém retornos fora da fila automática", async () => {
+test("caixa postal limita três tentativas, retorno sai da fila e agendado vira sucesso", async () => {
   const fixture = await createQueueFixture(2);
   const testSdr = await createTestSdr("tentativas");
   const ana = testSdr.session;
@@ -611,7 +611,7 @@ test("limita três tentativas e mantém retornos fora da fila automática", asyn
       const current = await claim.json();
       assert.equal(current.id, exhaustedLead.id);
       const outcome = await request(`/api/leads/${current.id}/outcomes`, {
-        method: "POST", headers, body: JSON.stringify({ outcome: "NO_ANSWER" }),
+        method: "POST", headers, body: JSON.stringify({ outcome: "VOICEMAIL" }),
       });
       assert.equal(outcome.status, 201);
       const saved = await outcome.json();
@@ -644,15 +644,15 @@ test("limita três tentativas e mantém retornos fora da fila automática", asyn
 
     const explicitClaim = await request(`/api/sdr/callbacks/${callbackLead.id}/claim`, { method: "POST", headers });
     assert.equal(explicitClaim.status, 200);
-    const directed = await request(`/api/leads/${callbackLead.id}/outcomes`, {
-      method: "POST", headers, body: JSON.stringify({ outcome: "DIRECTED", vehicle: "T-Cross Comfortline" }),
+    const scheduled = await request(`/api/leads/${callbackLead.id}/outcomes`, {
+      method: "POST", headers, body: JSON.stringify({ outcome: "SCHEDULED", vehicle: "T-Cross Comfortline" }),
     });
-    assert.equal(directed.status, 201);
-    const directedLead = await directed.json();
-    assert.equal(directedLead.attempts, 2);
-    assert.equal(directedLead.statusCode, "DIRECTED");
-    assert.equal(directedLead.vehicle, "T-Cross Comfortline");
-    assert.equal(directedLead.qualification.type, "Direcionado");
+    assert.equal(scheduled.status, 201);
+    const scheduledLead = await scheduled.json();
+    assert.equal(scheduledLead.attempts, 2);
+    assert.equal(scheduledLead.statusCode, "SCHEDULED");
+    assert.equal(scheduledLead.vehicle, "T-Cross Comfortline");
+    assert.equal(scheduledLead.qualification.type, "Agendado");
   } finally {
     await cleanupQueueFixture(fixture);
     await cleanupTestSdrs(testSdr.user);

@@ -153,8 +153,8 @@ router.get("/:sdrId/summary", async (request, response) => {
   });
   response.json({
     worked: attempts.length,
-    contacts: attempts.filter((attempt) => !["NO_ANSWER", "INVALID_NUMBER"].includes(attempt.outcome)).length,
-    qualified: attempts.filter((attempt) => ["QUALIFIED", "DIRECTED"].includes(attempt.outcome)).length,
+    contacts: attempts.filter((attempt) => !["NO_ANSWER", "VOICEMAIL", "INVALID_NUMBER"].includes(attempt.outcome)).length,
+    qualified: attempts.filter((attempt) => ["QUALIFIED", "DIRECTED", "SCHEDULED"].includes(attempt.outcome)).length,
     callbacks: attempts.filter((attempt) => attempt.outcome === "CALLBACK").length,
   });
 });

@@ -10,12 +10,17 @@ const { requireCsrf, requireRole } = require("../middleware/auth");
 const router = express.Router();
 const outcomes = new Set([
   "NO_ANSWER",
+  "VOICEMAIL",
   "INVALID_NUMBER",
   "REFUSED",
   "CONTACTED",
   "QUALIFIED",
   "DIRECTED",
+  "SCHEDULED",
   "NOT_QUALIFIED",
+  "ALREADY_BOUGHT",
+  "LIMBO",
+  "FUTURE_INTEREST",
   "CALLBACK",
 ]);
 
@@ -25,18 +30,27 @@ const leadStatusByOutcome = {
   CONTACTED: "CONTACTED",
   QUALIFIED: "QUALIFIED",
   DIRECTED: "DIRECTED",
+  SCHEDULED: "SCHEDULED",
   NOT_QUALIFIED: "NOT_QUALIFIED",
+  ALREADY_BOUGHT: "ALREADY_BOUGHT",
+  LIMBO: "LIMBO",
+  FUTURE_INTEREST: "FUTURE_INTEREST",
   CALLBACK: "CALLBACK",
 };
 
 const legacyCallResult = {
   NO_ANSWER: "no_answer",
+  VOICEMAIL: "voicemail",
   INVALID_NUMBER: "invalid",
   REFUSED: "no_interest",
   CONTACTED: "contacted",
   QUALIFIED: "qualified",
   DIRECTED: "directed",
+  SCHEDULED: "scheduled",
   NOT_QUALIFIED: "not_qualified",
+  ALREADY_BOUGHT: "already_bought",
+  LIMBO: "limbo",
+  FUTURE_INTEREST: "future_interest",
   CALLBACK: "callback",
 };
 
@@ -92,7 +106,7 @@ router.post("/:leadId/outcomes", requireRole("SDR"), requireCsrf, async (request
     }
 
     const sequence = lead.attempts + 1;
-    const status = outcome === "NO_ANSWER"
+    const status = ["NO_ANSWER", "VOICEMAIL"].includes(outcome)
       ? (sequence >= 3 ? "EXHAUSTED" : "PENDING")
       : leadStatusByOutcome[outcome];
 
@@ -136,8 +150,8 @@ router.post("/:leadId/outcomes", requireRole("SDR"), requireCsrf, async (request
       await tx.callback.updateMany({ where: { leadId, completedAt: null }, data: { completedAt: now } });
     }
 
-    if (["QUALIFIED", "DIRECTED"].includes(outcome)) {
-      const qualificationType = outcome === "DIRECTED" ? "Direcionado" : "Qualificado";
+    if (["QUALIFIED", "DIRECTED", "SCHEDULED"].includes(outcome)) {
+      const qualificationType = outcome === "SCHEDULED" ? "Agendado" : outcome === "DIRECTED" ? "Direcionado" : "Qualificado";
       await tx.qualification.upsert({
         where: { leadId },
         create: { leadId, type: qualificationType, notes },

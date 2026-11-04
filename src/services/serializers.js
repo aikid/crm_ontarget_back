@@ -1,24 +1,33 @@
 const statusLabels = {
   PENDING: "Pendente",
-  CALLBACK: "Retorno",
+  CALLBACK: "Retornar",
   CONTACTED: "Contato realizado",
   QUALIFIED: "Qualificado",
   DIRECTED: "Direcionado",
+  SCHEDULED: "Agendado",
   NOT_QUALIFIED: "Sem interesse",
   REFUSED: "Recusou",
+  ALREADY_BOUGHT: "Já comprou",
+  LIMBO: "Limbo",
+  FUTURE_INTEREST: "Interesse futuro",
   EXHAUSTED: "Tentativas esgotadas",
-  INVALID_NUMBER: "Número inválido",
+  INVALID_NUMBER: "Número não existe",
 };
 
 const outcomeLabels = {
   NO_ANSWER: "Não atendeu",
-  INVALID_NUMBER: "Número inválido",
+  VOICEMAIL: "Caixa Postal",
+  INVALID_NUMBER: "Número não existe",
   REFUSED: "Recusou",
   CONTACTED: "Contato realizado",
   QUALIFIED: "Qualificado",
   DIRECTED: "Direcionado",
+  SCHEDULED: "Agendado",
   NOT_QUALIFIED: "Sem interesse",
-  CALLBACK: "Retorno solicitado",
+  ALREADY_BOUGHT: "Já comprou",
+  LIMBO: "Limbo",
+  FUTURE_INTEREST: "Interesse futuro",
+  CALLBACK: "Retornar",
 };
 
 const auditLabels = {
