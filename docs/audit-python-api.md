@@ -85,23 +85,57 @@ Authorization: Bearer <AUDIT_INTEGRATION_TOKEN>
 
 ```json
 {
-  "classification": "confirmed",
-  "confidence": 94,
+  "classification": "APROVADO",
+  "confidence": "ALTA",
+  "summary": "Cliente confirmou interesse no veículo e aceitou o direcionamento.",
+  "sellerOption": "0km",
   "evidence": "Cliente confirmou interesse no veículo.",
-  "observations": "Encaminhar ao vendedor no período da tarde.",
   "modelVersion": "auditor-python-v1"
 }
 ```
 
 Regras:
 
-- `classification`: obrigatório, até 80 caracteres;
-- `confidence`: inteiro obrigatório entre 0 e 100;
+- `classification`: texto obrigatório, até 80 caracteres e sem enum fixo; o valor enviado pelo Python é persistido e exibido pelo SysOn;
+- `confidence`: obrigatório; aceita `ALTA`, `MÉDIA` ou `BAIXA` (`MEDIA` também é normalizado para `MÉDIA`);
+- `summary`: resumo obrigatório gerado pela IA, até 10.000 caracteres;
+- `sellerOption`: opcional; aceita `Venda direta`, `0km`, `Usado`, `Consórcio` ou `null`. Quando omitido, preserva o valor atual;
 - `evidence`: opcional, até 10.000 caracteres;
-- `observations`: opcional, até 10.000 caracteres;
 - `modelVersion`: obrigatório, até 120 caracteres.
 
 O endpoint é idempotente por `recordingId`: a primeira chamada retorna `201`; repetições atualizam a mesma auditoria e retornam `200`. Nunca são criadas duas auditorias para a mesma gravação.
+
+O PUT altera somente `audit`, `auditSummary` e, quando enviado, `sellerOption` no lead. `auditNotes` continua reservado às observações manuais do gestor. Status, tentativas, reservas e demais dados operacionais não são alterados.
+
+Resposta `201` ou `200`:
+
+```json
+{
+  "id": "audit-id",
+  "recordingId": "recording-id",
+  "leadId": "lead-id",
+  "callId": "call-id",
+  "attemptId": "attempt-id",
+  "classification": "APROVADO",
+  "summary": "Cliente confirmou interesse no veículo e aceitou o direcionamento.",
+  "sellerOption": "0km",
+  "confidence": "ALTA",
+  "evidence": "Cliente confirmou interesse no veículo.",
+  "modelVersion": "auditor-python-v1",
+  "auditedAt": "2026-11-06T14:30:00.000Z"
+}
+```
+
+## 4. Consultar auditoria persistida
+
+Depois do PUT, consulte os valores persistidos pela gravação:
+
+```http
+GET /api/integrations/audit/recordings/:recordingId/audit
+Authorization: Bearer <AUDIT_INTEGRATION_TOKEN>
+```
+
+A resposta possui o mesmo formato do PUT e permite validar especialmente `classification`, `summary` e `sellerOption`. Retorna `404` quando a gravação não existe ou ainda não foi auditada.
 
 ## Exemplo Python
 
@@ -127,10 +161,11 @@ for item in pending:
     audio.raise_for_status()
 
     result = {
-        "classification": "confirmed",
-        "confidence": 94,
+        "classification": "APROVADO",
+        "confidence": "ALTA",
+        "summary": "Cliente confirmou interesse e aceitou o direcionamento.",
+        "sellerOption": "0km",
         "evidence": "Cliente confirmou interesse.",
-        "observations": "Sem divergências.",
         "modelVersion": "auditor-python-v1",
     }
     response = requests.put(

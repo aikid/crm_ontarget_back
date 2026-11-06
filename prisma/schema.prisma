@@ -244,6 +244,7 @@ model Lead {
   origin         String
   reason         String?
   audit          String?
+  auditSummary   String?
   auditNotes     String?
   sellerOption   String?
   status         LeadStatus     @default(PENDING)
@@ -462,7 +463,8 @@ model Audit {
   recordingId    String?        @unique
   status         String         @default("not_audited")
   classification String?
-  confidence     Int?
+  confidence     String?
+  summary        String?
   evidence       String?
   observations   String?
   modelVersion   String?

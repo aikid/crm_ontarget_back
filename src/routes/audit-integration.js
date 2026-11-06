@@ -17,11 +17,37 @@ function boundedText(value, field, max, { optional = false } = {}) {
 }
 
 function confidence(value) {
-  const parsed = Number(required(value, "confidence"));
-  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 100) {
-    throw new HttpError(400, "confidence deve ser um número inteiro entre 0 e 100.");
+  const normalized = boundedText(value, "confidence", 10).toLocaleUpperCase("pt-BR");
+  const aliases = { ALTA: "ALTA", MÉDIA: "MÉDIA", MEDIA: "MÉDIA", BAIXA: "BAIXA" };
+  if (!aliases[normalized]) throw new HttpError(400, "confidence deve ser ALTA, MÉDIA ou BAIXA.");
+  return aliases[normalized];
+}
+
+function sellerOption(value) {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return null;
+  const parsed = boundedText(value, "sellerOption", 40);
+  if (!["Venda direta", "0km", "Usado", "Consórcio"].includes(parsed)) {
+    throw new HttpError(400, "sellerOption deve ser Venda direta, 0km, Usado ou Consórcio.");
   }
   return parsed;
+}
+
+function serializeAudit(audit, lead) {
+  return {
+    id: audit.id,
+    recordingId: audit.recordingId,
+    leadId: audit.leadId,
+    callId: audit.callId,
+    attemptId: audit.attemptId,
+    classification: audit.classification,
+    summary: audit.summary,
+    sellerOption: lead.sellerOption,
+    confidence: audit.confidence,
+    evidence: audit.evidence,
+    modelVersion: audit.modelVersion,
+    auditedAt: audit.auditedAt,
+  };
 }
 
 function serializeRecording(recording) {
@@ -78,11 +104,25 @@ router.get("/recordings", async (request, response) => {
   });
 });
 
+router.get("/recordings/:recordingId/audit", async (request, response) => {
+  const recording = await prisma.callRecording.findUnique({
+    where: { id: request.params.recordingId },
+    include: {
+      audit: true,
+      call: { include: { lead: { select: { sellerOption: true } } } },
+    },
+  });
+  if (!recording) throw new HttpError(404, "Gravação não encontrada.");
+  if (!recording.audit) throw new HttpError(404, "Auditoria ainda não registrada para esta gravação.");
+  response.json(serializeAudit(recording.audit, recording.call.lead));
+});
+
 router.put("/recordings/:recordingId/audit", async (request, response) => {
   const classification = boundedText(request.body.classification, "classification", 80);
   const auditConfidence = confidence(request.body.confidence);
   const evidence = boundedText(request.body.evidence, "evidence", 10_000, { optional: true });
-  const observations = boundedText(request.body.observations, "observations", 10_000, { optional: true });
+  const summary = boundedText(request.body.summary ?? request.body.observations, "summary", 10_000);
+  const requestedSellerOption = sellerOption(request.body.sellerOption);
   const modelVersion = boundedText(request.body.modelVersion, "modelVersion", 120);
   const recording = await prisma.callRecording.findUnique({
     where: { id: request.params.recordingId },
@@ -102,8 +142,8 @@ router.put("/recordings/:recordingId/audit", async (request, response) => {
     status: classification,
     classification,
     confidence: auditConfidence,
+    summary,
     evidence,
-    observations,
     modelVersion,
     auditedAt,
   };
@@ -115,22 +155,16 @@ router.put("/recordings/:recordingId/audit", async (request, response) => {
     });
     await transaction.lead.update({
       where: { id: recording.call.leadId },
-      data: { audit: classification, auditNotes: observations },
+      data: {
+        audit: classification,
+        auditSummary: summary,
+        ...(requestedSellerOption !== undefined ? { sellerOption: requestedSellerOption } : {}),
+      },
     });
     return saved;
   });
-  response.status(recording.audit ? 200 : 201).json({
-    id: audit.id,
-    recordingId: audit.recordingId,
-    callId: audit.callId,
-    attemptId: audit.attemptId,
-    classification: audit.classification,
-    confidence: audit.confidence,
-    evidence: audit.evidence,
-    observations: audit.observations,
-    modelVersion: audit.modelVersion,
-    auditedAt: audit.auditedAt,
-  });
+  const lead = await prisma.lead.findUnique({ where: { id: recording.call.leadId }, select: { sellerOption: true } });
+  response.status(recording.audit ? 200 : 201).json(serializeAudit(audit, lead));
 });
 
 module.exports = router;

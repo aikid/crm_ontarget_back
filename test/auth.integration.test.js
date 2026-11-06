@@ -759,6 +759,10 @@ test("integração Python lista gravações e salva auditoria sem duplicidade", 
       include: { recording: true },
     });
     const headers = { Authorization: `Bearer ${token}` };
+    await prisma.lead.update({
+      where: { id: fixture.leads[0].id },
+      data: { auditNotes: "Observação manual do gestor.", sellerOption: "Usado" },
+    });
     assert.equal((await request("/api/integrations/audit/recordings", {
       headers: { Authorization: "Bearer inválido" },
     })).status, 401);
@@ -771,10 +775,10 @@ test("integração Python lista gravações e salva auditoria sem duplicidade", 
     assert.equal(item.attempt.outcome, "DIRECTED");
 
     const payload = JSON.stringify({
-      classification: "confirmed",
-      confidence: 94,
+      classification: "APROVADO",
+      confidence: "ALTA",
       evidence: "Cliente confirmou interesse.",
-      observations: "Encaminhar ao vendedor.",
+      summary: "Cliente confirmou interesse e veículo durante a ligação.",
       modelVersion: "auditor-python-v1",
     });
     const endpoint = `/api/integrations/audit/recordings/${call.recording.id}/audit`;
@@ -782,8 +786,29 @@ test("integração Python lista gravações e salva auditoria sem duplicidade", 
     assert.equal((await request(endpoint, { method: "PUT", headers, body: payload })).status, 200);
     assert.equal(await prisma.audit.count({ where: { recordingId: call.recording.id } }), 1);
     const auditedLead = await prisma.lead.findUnique({ where: { id: fixture.leads[0].id } });
-    assert.equal(auditedLead.audit, "confirmed");
-    assert.equal(auditedLead.auditNotes, "Encaminhar ao vendedor.");
+    assert.equal(auditedLead.audit, "APROVADO");
+    assert.equal(auditedLead.auditSummary, "Cliente confirmou interesse e veículo durante a ligação.");
+    assert.equal(auditedLead.auditNotes, "Observação manual do gestor.");
+    assert.equal(auditedLead.sellerOption, "Usado");
+    assert.equal(auditedLead.status, "PENDING");
+    assert.equal(auditedLead.attempts, 0);
+
+    const queryAudit = await request(endpoint, { headers });
+    assert.equal(queryAudit.status, 200);
+    const persistedAudit = await queryAudit.json();
+    assert.equal(persistedAudit.classification, "APROVADO");
+    assert.equal(persistedAudit.summary, "Cliente confirmou interesse e veículo durante a ligação.");
+    assert.equal(persistedAudit.sellerOption, "Usado");
+    assert.equal(persistedAudit.confidence, "ALTA");
+
+    const updatedPayload = JSON.stringify({
+      classification: "REVISAR",
+      confidence: "MÉDIA",
+      summary: "Auditoria atualizada sem alterar a operação.",
+      sellerOption: "0km",
+      modelVersion: "auditor-python-v2",
+    });
+    assert.equal((await request(endpoint, { method: "PUT", headers, body: updatedPayload })).status, 200);
 
     const manager = await login("carlos@ontarget.com.br");
     const edited = await request(`/api/operations/leads/${fixture.leads[0].id}/audit-fields`, {
@@ -793,7 +818,8 @@ test("integração Python lista gravações e salva auditoria sem duplicidade", 
     });
     assert.equal(edited.status, 200);
     const editedLead = await edited.json();
-    assert.equal(editedLead.audit.status, "Confirmado");
+    assert.equal(editedLead.audit.status, "REVISAR");
+    assert.equal(editedLead.auditSummary, "Auditoria atualizada sem alterar a operação.");
     assert.equal(editedLead.auditNotes, "Revisado pelo gestor.");
     assert.equal(editedLead.sellerOption, "0km");
 
