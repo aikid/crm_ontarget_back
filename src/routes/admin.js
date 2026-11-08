@@ -108,6 +108,20 @@ router.patch("/clients/:id", async (request, response) => {
   response.json(await prisma.client.update({ where: { id }, data }));
 });
 
+router.delete("/clients/:id", async (request, response) => {
+  const { id } = idParams.parse(request.params);
+  const client = await prisma.client.findUnique({
+    where: { id },
+    include: { _count: { select: { stores: true, campaigns: true, users: true, leads: true, imports: true } } },
+  });
+  if (!client) throw new HttpError(404, "Cliente não encontrado.");
+  if (Object.values(client._count).some(Boolean)) {
+    throw new HttpError(409, "Este cliente possui vendedores, ações, usuários, leads ou importações. Desative-o para preservar o histórico.");
+  }
+  await prisma.client.delete({ where: { id } });
+  response.status(204).end();
+});
+
 router.post("/clients/:id/access", async (request, response, next) => {
   const { id } = idParams.parse(request.params);
   requireEmailConfiguration();
@@ -192,6 +206,20 @@ router.patch("/stores/:id", async (request, response) => {
   response.json(await prisma.store.update({ where: { id }, data }));
 });
 
+router.delete("/stores/:id", async (request, response) => {
+  const { id } = idParams.parse(request.params);
+  const store = await prisma.store.findUnique({
+    where: { id },
+    include: { _count: { select: { campaigns: true, leads: true, metrics: true, imports: true } } },
+  });
+  if (!store) throw new HttpError(404, "Vendedor não encontrado.");
+  if (Object.values(store._count).some(Boolean)) {
+    throw new HttpError(409, "Este vendedor possui ações, leads, métricas ou importações. Desative-o para preservar o histórico.");
+  }
+  await prisma.store.delete({ where: { id } });
+  response.status(204).end();
+});
+
 router.get("/campaigns", async (request, response) => {
   const rows = await prisma.campaign.findMany({
     where: request.query.clientId ? { clientId: String(request.query.clientId) } : {},
@@ -225,6 +253,22 @@ router.patch("/campaigns/:id", async (request, response) => {
     await activeStore(current.clientId, current.storeId);
   }
   response.json(await prisma.campaign.update({ where: { id }, data }));
+});
+
+router.delete("/campaigns/:id", async (request, response) => {
+  const { id } = idParams.parse(request.params);
+  const campaign = await prisma.campaign.findUnique({
+    where: { id },
+    include: {
+      _count: { select: { leads: true, metrics: true, dailyMetrics: true, outcomeMetrics: true, imports: true } },
+    },
+  });
+  if (!campaign) throw new HttpError(404, "Ação não encontrada.");
+  if (Object.values(campaign._count).some(Boolean)) {
+    throw new HttpError(409, "Esta ação possui leads, métricas ou importações. Desative-a para preservar o histórico.");
+  }
+  await prisma.campaign.delete({ where: { id } });
+  response.status(204).end();
 });
 
 router.get("/users", async (_request, response) => {

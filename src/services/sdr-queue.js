@@ -70,6 +70,47 @@ async function renewReservation(prisma, userId, leadId) {
   });
 }
 
+async function switchCampaignReservation(prisma, userId, campaignId) {
+  return prisma.$transaction(async (tx) => {
+    await lockUser(tx, userId);
+    const now = new Date();
+
+    // A tela pode perder a referencia do lead anterior enquanto a reserva
+    // continua no banco. Por isso a troca completa acontece no servidor.
+    await tx.lead.updateMany({
+      where: { reservedById: userId, campaignId: { not: campaignId } },
+      data: { reservedById: null, reservedAt: null, reservedUntil: null },
+    });
+
+    const current = await tx.lead.findFirst({
+      where: { reservedById: userId, campaignId, reservedUntil: { gt: now } },
+      orderBy: { reservedAt: "asc" },
+    });
+    if (current) return current;
+
+    const candidates = await tx.$queryRaw(Prisma.sql`
+      SELECT lead."id"
+      FROM "Lead" lead
+      WHERE lead."campaignId" = ${campaignId}
+        AND lead."status" = 'PENDING'
+        AND lead."invalidPhone" = false
+        AND lead."attempts" < 3
+        AND (lead."reservedUntil" IS NULL OR lead."reservedUntil" <= ${now})
+      ORDER BY lead."createdAt" ASC, lead."id" ASC
+      FOR UPDATE SKIP LOCKED
+      LIMIT 1
+    `);
+
+    // Nao lanca dentro da transacao: assim a liberacao anterior e confirmada
+    // mesmo quando a campanha de destino esta sem leads disponiveis.
+    if (!candidates.length) return null;
+    return tx.lead.update({
+      where: { id: candidates[0].id },
+      data: { reservedById: userId, reservedAt: now, reservedUntil: reservationWindow(now) },
+    });
+  });
+}
+
 async function releaseReservation(prisma, userId, leadId) {
   const released = await prisma.lead.updateMany({
     where: { id: leadId, reservedById: userId },
@@ -117,4 +158,5 @@ module.exports = {
   claimNextLead,
   releaseReservation,
   renewReservation,
+  switchCampaignReservation,
 };

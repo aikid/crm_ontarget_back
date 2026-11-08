@@ -10,6 +10,7 @@ const {
   claimNextLead,
   releaseReservation,
   renewReservation,
+  switchCampaignReservation,
 } = require("../services/sdr-queue");
 
 const router = express.Router();
@@ -72,6 +73,15 @@ router.post("/queue/claim", requireCsrf, async (request, response) => {
   await assertActiveCampaign(request.auth, campaignId);
   const reserved = await claimNextLead(prisma, request.auth.user.id, campaignId);
   response.json(await serializeOwnedLead(reserved.id, request.auth.user.id));
+});
+
+router.post("/queue/switch", requireCsrf, async (request, response) => {
+  const campaignId = required(request.body.campaignId, "campaignId");
+  await assertActiveCampaign(request.auth, campaignId);
+  const reserved = await switchCampaignReservation(prisma, request.auth.user.id, campaignId);
+  response.json({
+    lead: reserved ? await serializeOwnedLead(reserved.id, request.auth.user.id) : null,
+  });
 });
 
 router.post("/queue/renew", requireCsrf, async (request, response) => {

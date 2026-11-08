@@ -426,6 +426,56 @@ test("gestor mantém a hierarquia cliente, loja, campanha e usuário", async () 
   }
 });
 
+test("gestor exclui cadastros vazios e preserva estruturas com vínculos", async () => {
+  const { body, cookie } = await login("carlos@ontarget.com.br");
+  const headers = { Cookie: cookie, "X-CSRF-Token": body.csrfToken };
+  const suffix = `${Date.now().toString(36)}-delete`;
+  let clientId;
+  let storeId;
+  let campaignId;
+
+  try {
+    const clientResponse = await request("/api/admin/clients", {
+      method: "POST", headers, body: JSON.stringify({ name: `Cliente ${suffix}`, email: `${suffix}@example.com` }),
+    });
+    assert.equal(clientResponse.status, 201);
+    clientId = (await clientResponse.json()).id;
+
+    const storeResponse = await request("/api/admin/stores", {
+      method: "POST", headers, body: JSON.stringify({ clientId, name: `Vendedor ${suffix}`, shortName: "Todos" }),
+    });
+    assert.equal(storeResponse.status, 201);
+    storeId = (await storeResponse.json()).id;
+
+    const campaignResponse = await request("/api/admin/campaigns", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ clientId, storeId, name: `Ação ${suffix}`, startDate: "2026-11-01", endDate: "2026-11-30" }),
+    });
+    assert.equal(campaignResponse.status, 201);
+    campaignId = (await campaignResponse.json()).id;
+
+    const protectedClient = await request(`/api/admin/clients/${clientId}`, { method: "DELETE", headers });
+    assert.equal(protectedClient.status, 409);
+    const protectedStore = await request(`/api/admin/stores/${storeId}`, { method: "DELETE", headers });
+    assert.equal(protectedStore.status, 409);
+
+    const deletedCampaign = await request(`/api/admin/campaigns/${campaignId}`, { method: "DELETE", headers });
+    assert.equal(deletedCampaign.status, 204);
+    campaignId = null;
+    const deletedStore = await request(`/api/admin/stores/${storeId}`, { method: "DELETE", headers });
+    assert.equal(deletedStore.status, 204);
+    storeId = null;
+    const deletedClient = await request(`/api/admin/clients/${clientId}`, { method: "DELETE", headers });
+    assert.equal(deletedClient.status, 204);
+    clientId = null;
+  } finally {
+    if (campaignId) await prisma.campaign.delete({ where: { id: campaignId } });
+    if (storeId) await prisma.store.delete({ where: { id: storeId } });
+    if (clientId) await prisma.client.delete({ where: { id: clientId } });
+  }
+});
+
 test("banco rejeita lead fora da hierarquia da campanha", async () => {
   await assert.rejects(
     prisma.lead.create({
@@ -593,6 +643,52 @@ test("reserva um único lead sob concorrência e exige o SDR proprietário", asy
   } finally {
     await cleanupQueueFixture(fixture);
     await cleanupTestSdrs(firstSdr.user, secondSdr.user);
+  }
+});
+
+test("troca de campanha libera a reserva anterior e seleciona o lead da nova fila", async () => {
+  const previousFixture = await createQueueFixture(1);
+  const nextFixture = await createQueueFixture(1);
+  const emptyFixture = await createQueueFixture(0);
+  const testSdr = await createTestSdr("troca-campanha");
+  const session = testSdr.session;
+  const headers = { Cookie: session.cookie, "X-CSRF-Token": session.body.csrfToken };
+
+  try {
+    const firstClaim = await request("/api/sdr/queue/claim", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ campaignId: previousFixture.campaign.id }),
+    });
+    assert.equal(firstClaim.status, 200);
+    assert.equal((await firstClaim.json()).id, previousFixture.leads[0].id);
+
+    const switched = await request("/api/sdr/queue/switch", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ campaignId: nextFixture.campaign.id }),
+    });
+    assert.equal(switched.status, 200);
+    assert.equal((await switched.json()).lead.id, nextFixture.leads[0].id);
+
+    const previousLead = await prisma.lead.findUnique({ where: { id: previousFixture.leads[0].id } });
+    const nextLead = await prisma.lead.findUnique({ where: { id: nextFixture.leads[0].id } });
+    assert.equal(previousLead.reservedById, null);
+    assert.equal(nextLead.reservedById, session.body.user.id);
+
+    const switchedToEmpty = await request("/api/sdr/queue/switch", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ campaignId: emptyFixture.campaign.id }),
+    });
+    assert.equal(switchedToEmpty.status, 200);
+    assert.deepEqual(await switchedToEmpty.json(), { lead: null });
+    assert.equal((await prisma.lead.findUnique({ where: { id: nextFixture.leads[0].id } })).reservedById, null);
+  } finally {
+    await cleanupQueueFixture(previousFixture);
+    await cleanupQueueFixture(nextFixture);
+    await cleanupQueueFixture(emptyFixture);
+    await cleanupTestSdrs(testSdr.user);
   }
 });
 
