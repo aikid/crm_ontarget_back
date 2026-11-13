@@ -29,11 +29,11 @@ app.use("/api", (_request, response, next) => {
   next();
 });
 
-app.get("/health", (_request, response) => response.json({
+app.get("/health", async (_request, response) => response.json({
   status: "ok",
   service: "ontarget-api",
   email: { configured: isEmailConfigured() },
-  telephony: { asterisk: { ...asteriskRuntime.snapshot(), sip: sipConfigurationStatus() } },
+  telephony: { asterisk: { ...asteriskRuntime.snapshot(), sip: await sipConfigurationStatus() } },
 }));
 app.use("/api/auth", authRoutes);
 app.use("/api/integrations/audit", auditIntegrationRoutes);

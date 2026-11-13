@@ -20,7 +20,9 @@
     "db:up": "docker compose up -d --wait",
     "db:down": "docker compose down",
     "db:reset": "prisma migrate reset --force",
-    "db:logs": "docker compose logs -f postgres"
+    "db:logs": "docker compose logs -f postgres",
+    "sip:key": "node scripts/generate-sip-encryption-key.js",
+    "sip:import-env": "node scripts/import-sip-accounts.js"
   },
   "keywords": [],
   "author": "",

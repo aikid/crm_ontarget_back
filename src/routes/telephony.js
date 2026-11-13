@@ -60,7 +60,7 @@ function publicAsteriskCall(call) {
 }
 
 router.get("/asterisk/session", requireAuth, requireRole("SDR"), async (request, response) => {
-  const session = publicSipSession(request.auth.user);
+  const session = await publicSipSession(request.auth.user);
   if (!session) {
     throw new HttpError(503, "Ramal SIP não provisionado para este SDR ou telefonia WebRTC incompleta.");
   }

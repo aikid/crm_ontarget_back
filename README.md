@@ -1,5 +1,20 @@
 # OnTarget API
 
+## Contas SIP no banco
+
+O modo por banco fica isolado por feature flag. Com a flag desligada, o JSON de ambiente continua sendo a unica fonte e o comportamento anterior e preservado:
+
+```env
+ASTERISK_DATABASE_ACCOUNTS_ENABLED=false
+ASTERISK_SIP_DATABASE_ENCRYPTION_KEY=
+```
+
+Gere uma chave AES de 32 bytes com `npm run sip:key`. A chave deve permanecer estavel: troca-la sem recriptografar os registros torna as senhas existentes ilegiveis.
+
+Antes de ativar o modo por banco, execute `npm run sip:import-env` uma unica vez no ambiente que possui o JSON e a chave configurados. O comando importa as contas existentes sem imprimir senhas. Novos ramais ainda sem usuario podem ser cadastrados por `POST /api/admin/sip-accounts`, com `extension` e `password`; `GET /api/admin/sip-accounts` lista apenas metadados seguros.
+
+Quando `ASTERISK_DATABASE_ACCOUNTS_ENABLED=true`, o cadastro de um SDR tenta reservar atomicamente o primeiro ramal livre. A falta de ramal nao desfaz o cadastro: a API devolve `telephony.status=PENDING` para que a interface mostre o aviso. A sessao SIP e a correlacao de chamadas passam a consultar o banco; nao existe fallback silencioso para o JSON nesse modo.
+
 Backend em Node.js, Express, Prisma e PostgreSQL criado a partir dos fluxos existentes no frontend.
 
 ## Executar localmente

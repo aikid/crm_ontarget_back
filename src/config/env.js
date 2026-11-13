@@ -57,6 +57,8 @@ module.exports = {
     sipWebSocketUrl: process.env.ASTERISK_SIP_WSS_URL,
     sipDomain: process.env.ASTERISK_SIP_DOMAIN,
     sipAccountsJson: process.env.ASTERISK_SIP_ACCOUNTS_JSON,
+    databaseAccountsEnabled: process.env.ASTERISK_DATABASE_ACCOUNTS_ENABLED === "true",
+    sipDatabaseEncryptionKey: process.env.ASTERISK_SIP_DATABASE_ENCRYPTION_KEY,
     sharedSipExtension: process.env.ASTERISK_SIP_EXTENSION,
     sharedSipPassword: process.env.ASTERISK_SIP_PASSWORD,
     allowSharedSipAccount: process.env.ASTERISK_ALLOW_SHARED_SIP_ACCOUNT === "true",

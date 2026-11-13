@@ -8,6 +8,11 @@ const { createPasswordResetToken, discardPasswordResetToken } = require("../auth
 const { HttpError } = require("../lib/http-error");
 const { requireCsrf, requireRole } = require("../middleware/auth");
 const { requireEmailConfiguration, sendPasswordEmail } = require("../services/email");
+const {
+  assignAvailableSipAccount,
+  createUnassignedSipAccount,
+  syncSipAccountForUser,
+} = require("../services/asterisk/sip-accounts");
 
 const router = express.Router();
 router.use(requireRole("GESTOR"));
@@ -58,6 +63,10 @@ const userUpdate = z.object({
   active: z.boolean().optional(),
   password: password.optional(),
 }).refine((data) => Object.keys(data).length > 0);
+const sipAccountCreate = z.object({
+  extension: z.string().trim().regex(/^\d{2,8}$/, "O ramal deve conter entre 2 e 8 d\u00edgitos."),
+  password: z.string().min(1, "Informe a senha SIP.").max(256),
+});
 
 function initials(value) {
   return value.split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase();
@@ -70,6 +79,22 @@ function unavailableInitialPassword() {
 function publicAdminUser(user) {
   const { passwordHash, ...safe } = user;
   return safe;
+}
+
+async function sipAssignmentForUser(user, synchronize = false) {
+  if (!env.asterisk.databaseAccountsEnabled || user.role !== "SDR") return null;
+  try {
+    return synchronize
+      ? await syncSipAccountForUser(user)
+      : await assignAvailableSipAccount(user);
+  } catch (error) {
+    console.error(`Falha ao vincular ramal SIP ao usu\u00e1rio ${user.id}:`, error.message);
+    return {
+      enabled: true,
+      status: "PENDING",
+      message: "Usu\u00e1rio salvo, mas o ramal SIP n\u00e3o p\u00f4de ser vinculado. Verifique a configura\u00e7\u00e3o da telefonia.",
+    };
+  }
 }
 
 async function activeClient(clientId) {
@@ -279,6 +304,34 @@ router.get("/users", async (_request, response) => {
   response.json({ data: rows.map(publicAdminUser) });
 });
 
+router.get("/sip-accounts", async (_request, response) => {
+  const rows = await prisma.sipAccount.findMany({
+    select: {
+      id: true,
+      userId: true,
+      email: true,
+      extension: true,
+      isAssigned: true,
+      assignedAt: true,
+      createdAt: true,
+      updatedAt: true,
+      user: { select: { id: true, name: true, email: true, active: true } },
+    },
+    orderBy: [{ isAssigned: "desc" }, { extension: "asc" }],
+  });
+  response.json({ data: rows });
+});
+
+router.post("/sip-accounts", async (request, response) => {
+  const data = sipAccountCreate.parse(request.body);
+  try {
+    response.status(201).json(await createUnassignedSipAccount(data));
+  } catch (error) {
+    if (error.code === "P2002") throw new HttpError(409, "Este ramal SIP j\u00e1 est\u00e1 cadastrado.");
+    throw error;
+  }
+});
+
 router.post("/users", async (request, response) => {
   const data = userCreate.parse(request.body);
   const clientId = normalizeUserClient(data.role, data.clientId);
@@ -294,7 +347,8 @@ router.post("/users", async (request, response) => {
     },
     include: { client: { select: { id: true, name: true, active: true } } },
   });
-  response.status(201).json(publicAdminUser(created));
+  const telephony = await sipAssignmentForUser(created);
+  response.status(201).json({ ...publicAdminUser(created), ...(telephony ? { telephony } : {}) });
 });
 
 router.patch("/users/:id", async (request, response) => {
@@ -323,7 +377,8 @@ router.patch("/users/:id", async (request, response) => {
     include: { client: { select: { id: true, name: true, active: true } } },
   });
   if (data.active === false) await prisma.authSession.deleteMany({ where: { userId: id } });
-  response.json(publicAdminUser(updated));
+  const telephony = await sipAssignmentForUser(updated, true);
+  response.json({ ...publicAdminUser(updated), ...(telephony ? { telephony } : {}) });
 });
 
 module.exports = router;

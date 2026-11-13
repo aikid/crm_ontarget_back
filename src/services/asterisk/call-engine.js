@@ -68,9 +68,11 @@ class AsteriskCallEngine {
     if (args[0] !== this.config.webAppArg) return null;
     const channelName = event.channel?.name || "";
     const sourceExtension = channelName.match(/^PJSIP\/([^/-]+)-/)?.[1] || null;
-    const account = accountForExtension(sourceExtension, this.config);
+    const account = await accountForExtension(sourceExtension, this.config, this.database);
     if (!account && !channelName.startsWith(this.config.webChannelPrefix)) return null;
-    const ownerFilter = account?.email ? { sdr: { is: { email: account.email } } } : {};
+    const ownerFilter = account?.userId
+      ? { sdrId: account.userId }
+      : account?.email ? { sdr: { is: { email: account.email } } } : {};
     const requestedAfter = new Date(Date.now() - this.config.intentTtlSeconds * 1_000);
     const explicitCallId = args[1];
     if (explicitCallId) {

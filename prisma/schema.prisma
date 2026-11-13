@@ -57,8 +57,24 @@ model User {
   sessions            AuthSession[]
   passwordResetTokens PasswordResetToken[]
   imports             ImportBatch[]
+  sipAccount          SipAccount?
 
   @@index([clientId])
+}
+
+model SipAccount {
+  id                String    @id @default(cuid())
+  userId            String?   @unique
+  email             String?   @unique
+  extension         String    @unique
+  passwordEncrypted String
+  isAssigned        Boolean   @default(false)
+  assignedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  user              User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([isAssigned, extension])
 }
 
 enum UserRole {
