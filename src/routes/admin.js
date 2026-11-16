@@ -10,7 +10,6 @@ const { requireCsrf, requireRole } = require("../middleware/auth");
 const { requireEmailConfiguration, sendPasswordEmail } = require("../services/email");
 const {
   assignAvailableSipAccount,
-  createUnassignedSipAccount,
   syncSipAccountForUser,
 } = require("../services/asterisk/sip-accounts");
 
@@ -63,11 +62,6 @@ const userUpdate = z.object({
   active: z.boolean().optional(),
   password: password.optional(),
 }).refine((data) => Object.keys(data).length > 0);
-const sipAccountCreate = z.object({
-  extension: z.string().trim().regex(/^\d{2,8}$/, "O ramal deve conter entre 2 e 8 d\u00edgitos."),
-  password: z.string().min(1, "Informe a senha SIP.").max(256),
-});
-
 function initials(value) {
   return value.split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase();
 }
@@ -298,38 +292,11 @@ router.delete("/campaigns/:id", async (request, response) => {
 
 router.get("/users", async (_request, response) => {
   const rows = await prisma.user.findMany({
+    where: { role: { not: "ADMIN" } },
     include: { client: { select: { id: true, name: true, active: true } } },
     orderBy: [{ role: "asc" }, { name: "asc" }],
   });
   response.json({ data: rows.map(publicAdminUser) });
-});
-
-router.get("/sip-accounts", async (_request, response) => {
-  const rows = await prisma.sipAccount.findMany({
-    select: {
-      id: true,
-      userId: true,
-      email: true,
-      extension: true,
-      isAssigned: true,
-      assignedAt: true,
-      createdAt: true,
-      updatedAt: true,
-      user: { select: { id: true, name: true, email: true, active: true } },
-    },
-    orderBy: [{ isAssigned: "desc" }, { extension: "asc" }],
-  });
-  response.json({ data: rows });
-});
-
-router.post("/sip-accounts", async (request, response) => {
-  const data = sipAccountCreate.parse(request.body);
-  try {
-    response.status(201).json(await createUnassignedSipAccount(data));
-  } catch (error) {
-    if (error.code === "P2002") throw new HttpError(409, "Este ramal SIP j\u00e1 est\u00e1 cadastrado.");
-    throw error;
-  }
 });
 
 router.post("/users", async (request, response) => {
@@ -356,6 +323,7 @@ router.patch("/users/:id", async (request, response) => {
   const data = userUpdate.parse(request.body);
   const { password: newPassword, ...userData } = data;
   const current = await prisma.user.findUnique({ where: { id } });
+  if (current?.role === "ADMIN") throw new HttpError(403, "Este usu\u00e1rio pertence \u00e0 administra\u00e7\u00e3o do sistema.");
   if (!current) throw new HttpError(404, "Usuário não encontrado.");
   const role = data.role || current.role;
   const requestedClient = data.clientId === undefined ? current.clientId : data.clientId;

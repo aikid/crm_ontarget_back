@@ -78,6 +78,7 @@ model SipAccount {
 }
 
 enum UserRole {
+  ADMIN
   GESTOR
   SDR
   CLIENT

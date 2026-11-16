@@ -22,7 +22,8 @@
     "db:reset": "prisma migrate reset --force",
     "db:logs": "docker compose logs -f postgres",
     "sip:key": "node scripts/generate-sip-encryption-key.js",
-    "sip:import-env": "node scripts/import-sip-accounts.js"
+    "sip:import-env": "node scripts/import-sip-accounts.js",
+    "admin:provision": "node scripts/provision-system-admin.js"
   },
   "keywords": [],
   "author": "",

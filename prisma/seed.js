@@ -71,7 +71,7 @@ async function main() {
     prisma.audit.deleteMany(), prisma.appointment.deleteMany(), prisma.qualification.deleteMany(),
     prisma.callback.deleteMany(), prisma.attempt.deleteMany(), prisma.call.deleteMany(), prisma.importError.deleteMany(), prisma.importBatch.deleteMany(), prisma.lead.deleteMany(),
     prisma.campaignOutcomeMetric.deleteMany(), prisma.dailyMetric.deleteMany(), prisma.campaignMetric.deleteMany(),
-    prisma.authSession.deleteMany(), prisma.user.deleteMany(), prisma.campaign.deleteMany(), prisma.store.deleteMany(), prisma.client.deleteMany(),
+    prisma.authSession.deleteMany(), prisma.sipAccount.deleteMany(), prisma.user.deleteMany(), prisma.campaign.deleteMany(), prisma.store.deleteMany(), prisma.client.deleteMany(),
   ]);
 
   for (const client of clients) await prisma.client.create({ data: client });
@@ -79,6 +79,7 @@ async function main() {
   for (const campaign of campaigns) await prisma.campaign.create({ data: campaign });
 
   await prisma.user.createMany({ data: [
+    { id: "user-admin-syson", name: "Administracao SysOn", email: "sysonsuporte@gmail.com", initials: "SA", passwordHash, role: "ADMIN" },
     { id: "user-gestor-carlos", name: "Carlos Mendes", email: "carlos@ontarget.com.br", initials: "CM", passwordHash, role: "GESTOR" },
     { id: "user-portal-ricardo", clientId: "BRASAL", name: "Ricardo Almeida", email: "ricardo@brasaldemo.com.br", initials: "RA", passwordHash, role: "CLIENT" },
     { id: "user-sdr-ana", name: "Ana Souza", email: "ana@ontarget.com.br", initials: "AS", passwordHash, role: "SDR" },
