@@ -180,3 +180,22 @@ test("permite ao SDR encerrar a chamada atendida", async () => {
   await engine.hangup("call-1");
   assert.equal(transitions.at(-1).status, "ENDED");
 });
+
+test("mantém a varredura ativa somente quando existem chamadas em andamento", async () => {
+  const now = new Date("2026-11-20T12:00:00.000Z");
+  const { engine, transitions } = harness({
+    status: "DIALING",
+    requestedAt: now,
+    dialingAt: now,
+  });
+  assert.equal(await engine.sweepExpired(now), 1);
+  assert.equal(transitions.length, 0);
+});
+
+test("encerra chamadas expiradas e permite que a varredura fique ociosa", async () => {
+  const now = new Date("2026-11-20T12:00:00.000Z");
+  const requestedAt = new Date(now.getTime() - 60_000);
+  const { engine, transitions } = harness({ status: "READY", requestedAt });
+  assert.equal(await engine.sweepExpired(now), 0);
+  assert.equal(transitions.at(-1).status, "CANCELED");
+});

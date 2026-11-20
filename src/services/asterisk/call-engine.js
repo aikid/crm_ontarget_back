@@ -32,28 +32,49 @@ class AsteriskCallEngine {
     this.transition = transition;
     this.persistEvent = persistEvent;
     this.cleanupInProgress = new Set();
+    this.started = false;
     this.sweepTimer = null;
     this.recordingSweepTimer = null;
   }
 
   start() {
-    if (this.sweepTimer) return;
-    this.sweepTimer = setInterval(() => {
-      this.sweepExpired().catch((error) => this.logger.error("Falha na varredura de chamadas:", error.message));
-    }, 1_000);
-    this.sweepTimer.unref?.();
+    if (this.started) return;
+    this.started = true;
+    this.wakeSweeper(0);
     void this.sweepExpiredRecordings().catch((error) => this.logger.error("Falha na retenção de gravações:", error.message));
     this.recordingSweepTimer = setInterval(() => {
       this.sweepExpiredRecordings().catch((error) => this.logger.error("Falha na retenção de gravações:", error.message));
-    }, 60 * 60_000);
+    }, 24 * 60 * 60_000);
     this.recordingSweepTimer.unref?.();
   }
 
   stop() {
-    if (this.sweepTimer) clearInterval(this.sweepTimer);
+    this.started = false;
+    if (this.sweepTimer) clearTimeout(this.sweepTimer);
     if (this.recordingSweepTimer) clearInterval(this.recordingSweepTimer);
     this.sweepTimer = null;
     this.recordingSweepTimer = null;
+  }
+
+  wakeSweeper(delayMs = 1_000, replace = false) {
+    if (!this.started) return;
+    if (this.sweepTimer && !replace) return;
+    if (this.sweepTimer) clearTimeout(this.sweepTimer);
+    this.sweepTimer = setTimeout(async () => {
+      this.sweepTimer = null;
+      try {
+        const activeCalls = await this.sweepExpired();
+        if (activeCalls > 0) this.wakeSweeper(1_000);
+      } catch (error) {
+        this.logger.error("Falha na varredura de chamadas:", error.message);
+        this.wakeSweeper(60_000);
+      }
+    }, delayMs);
+    this.sweepTimer.unref?.();
+  }
+
+  trackActiveCall() {
+    this.wakeSweeper(1_000, true);
   }
 
   recordingMetadata(name, now = new Date()) {
@@ -301,18 +322,24 @@ class AsteriskCallEngine {
     const calls = await this.database.call.findMany({
       where: {
         provider: "asterisk",
-        OR: [
-          { status: "READY", requestedAt: { lt: readyBefore } },
-          { status: { in: ["DIALING", "RINGING"] }, dialingAt: { lt: readyBefore } },
-          { status: "CONNECTED", answeredAt: { lt: connectedBefore } },
-        ],
+        status: { in: ["READY", "DIALING", "RINGING", "CONNECTED"] },
       },
-      select: { id: true, status: true },
+      select: { id: true, status: true, requestedAt: true, dialingAt: true, answeredAt: true },
     });
+    let expiredCalls = 0;
     for (const call of calls) {
+      const dialingStartedAt = call.dialingAt || call.requestedAt;
+      const expired = call.status === "READY"
+        ? call.requestedAt < readyBefore
+        : ["DIALING", "RINGING"].includes(call.status)
+          ? dialingStartedAt < readyBefore
+          : Boolean(call.answeredAt && call.answeredAt < connectedBefore);
+      if (!expired) continue;
       const status = call.status === "READY" ? "CANCELED" : call.status === "CONNECTED" ? "ENDED" : "NO_ANSWER";
       await this.cleanup(call.id, status, "Tempo máximo da chamada atingido.", { hangupInitiator: "system" });
+      expiredCalls += 1;
     }
+    return calls.length - expiredCalls;
   }
 
   async sweepExpiredRecordings(now = new Date()) {

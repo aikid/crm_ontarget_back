@@ -85,6 +85,7 @@ router.post("/asterisk/calls", requireAuth, requireRole("SDR"), requireCsrf, asy
     destination: lead.phone,
     idempotencyKey: request.get("Idempotency-Key"),
   });
+  asteriskCallEngine.trackActiveCall();
   const fullCall = await prisma.call.findUnique({ where: { id: call.id }, include: { recording: true } });
   response.status(reused ? 200 : 202).json({
     ...publicAsteriskCall(fullCall),

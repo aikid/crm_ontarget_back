@@ -20,6 +20,9 @@ const { requireAuth } = require("./middleware/auth");
 const { notFound, errorHandler } = require("./middleware/errors");
 
 const app = express();
+// Render encaminha as requisições por um proxy reverso. Confiar em um salto
+// permite que o Express e o rate limiter identifiquem corretamente o IP real.
+app.set("trust proxy", 1);
 app.disable("x-powered-by");
 app.use(helmet());
 app.use(cors({ origin: env.frontendUrls, credentials: true }));
