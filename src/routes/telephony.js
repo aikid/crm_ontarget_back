@@ -149,7 +149,10 @@ router.get("/asterisk/calls/:callId/events", requireAuth, requireRole("SDR"), as
 });
 
 router.post("/asterisk/calls/:callId/hangup", requireAuth, requireRole("SDR"), requireCsrf, async (request, response) => {
-  await ownedAsteriskCall(request, request.params.callId);
+  const activeCall = await ownedAsteriskCall(request, request.params.callId);
+  if (!activeCall.answeredAt && activeCall.status !== "CONNECTED") {
+    throw new HttpError(409, "A chamada só pode ser encerrada pelo SDR depois que for atendida.");
+  }
   const call = await asteriskCallEngine.hangup(request.params.callId);
   response.json(publicAsteriskCall(await prisma.call.findUnique({ where: { id: call.id }, include: { recording: true } })));
 });

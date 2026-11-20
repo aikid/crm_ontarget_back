@@ -1,5 +1,6 @@
 const crypto = require("node:crypto");
 const env = require("../../config/env");
+const { HttpError } = require("../../lib/http-error");
 const prisma = require("../../lib/prisma");
 const { AriClient, AriRequestError } = require("./ari-client");
 const { persistCorrelatedAriEvent } = require("./ari-event-store");
@@ -279,6 +280,9 @@ class AsteriskCallEngine {
   async hangup(callId) {
     const current = await this.database.call.findUnique({ where: { id: callId } });
     if (!current) return null;
+    if (!current.answeredAt && current.status !== "CONNECTED") {
+      throw new HttpError(409, "A chamada só pode ser encerrada pelo SDR depois que for atendida.");
+    }
     const status = current.answeredAt || current.status === "CONNECTED" ? "ENDED" : "CANCELED";
     await this.cleanup(callId, status, "Encerramento solicitado pelo SDR.", { hangupInitiator: "sdr" });
     return this.database.call.findUnique({ where: { id: callId } });

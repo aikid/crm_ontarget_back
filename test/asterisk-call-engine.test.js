@@ -163,3 +163,20 @@ test("aguarda ChannelDestroyed para não perder a causa Q.850 remota", async () 
   await engine.handleChannelEnded({ type: "StasisEnd", channel: { id: "remote-1" } });
   assert.equal(transitions.length, 0);
 });
+
+test("impede o SDR de encerrar a chamada antes do atendimento", async () => {
+  const { calls, engine, transitions } = harness({ status: "RINGING", answeredAt: null });
+  await assert.rejects(
+    engine.hangup("call-1"),
+    (error) => error.status === 409 && /depois que for atendida/.test(error.message),
+  );
+  assert.equal(transitions.length, 0);
+  assert.equal(calls.length, 0);
+});
+
+test("permite ao SDR encerrar a chamada atendida", async () => {
+  const answeredAt = new Date("2026-11-19T15:00:00.000Z");
+  const { engine, transitions } = harness({ status: "CONNECTED", answeredAt });
+  await engine.hangup("call-1");
+  assert.equal(transitions.at(-1).status, "ENDED");
+});

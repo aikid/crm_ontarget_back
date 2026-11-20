@@ -15,18 +15,34 @@ router.get("/:campaignId/dashboard", async (request, response) => {
 });
 
 function leadWhere(campaignId, query) {
-  const where = { campaignId };
+  const where = { campaignId, AND: [] };
   if (query.storeId && query.storeId !== "all") where.storeId = query.storeId;
   if (query.status && query.status !== "all") where.status = String(query.status).toUpperCase();
+  if (query.category === "appointments") where.AND.push({ appointment: { isNot: null } });
+  if (query.category === "qualified") {
+    where.AND.push({ OR: [
+      { qualification: { isNot: null } },
+      { status: { in: ["QUALIFIED", "DIRECTED", "SCHEDULED"] } },
+    ] });
+  }
   if (query.vehicle && query.vehicle !== "all") where.vehicle = query.vehicle;
-  if (query.audit && query.audit !== "all") where.audits = { some: { status: query.audit } };
-  if (query.seller && query.seller !== "all") where.appointment = { seller: query.seller };
+  if (query.audit && query.audit !== "all") {
+    if (query.audit === "not_audited") {
+      where.AND.push({ OR: [
+        { audit: "not_audited" },
+        { audit: null, audits: { none: {} } },
+        { audits: { some: { status: "not_audited" } } },
+      ] });
+    } else where.AND.push({ audits: { some: { status: query.audit } } });
+  }
+  if (query.seller && query.seller !== "all") where.AND.push({ appointment: { is: { seller: query.seller } } });
   if (query.search) {
-    where.OR = [
+    where.AND.push({ OR: [
       { name: { contains: query.search } },
       { phone: { contains: query.search } },
-    ];
+    ] });
   }
+  if (!where.AND.length) delete where.AND;
   return where;
 }
 
