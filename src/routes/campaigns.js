@@ -14,8 +14,9 @@ router.get("/:campaignId/dashboard", async (request, response) => {
   response.json(await campaignDashboard(request.params.campaignId, request.query.storeId));
 });
 
-function leadWhere(campaignId, query) {
+function leadWhere(campaignId, query, auditedOnly = false) {
   const where = { campaignId, AND: [] };
+  if (auditedOnly) where.AND.push({ audits: { some: { auditedAt: { not: null } } } });
   if (query.storeId && query.storeId !== "all") where.storeId = query.storeId;
   if (query.status && query.status !== "all") where.status = String(query.status).toUpperCase();
   if (query.category === "appointments") where.AND.push({ appointment: { isNot: null } });
@@ -50,7 +51,7 @@ router.get("/:campaignId/leads", async (request, response) => {
   await campaignForAuth(request.auth, request.params.campaignId);
   const page = Math.max(1, Number(request.query.page) || 1);
   const pageSize = Math.min(100, Math.max(1, Number(request.query.pageSize) || 20));
-  const where = leadWhere(request.params.campaignId, request.query);
+  const where = leadWhere(request.params.campaignId, request.query, request.auth.user.role === "CLIENT");
   const [total, leads] = await Promise.all([
     prisma.lead.count({ where }),
     prisma.lead.findMany({

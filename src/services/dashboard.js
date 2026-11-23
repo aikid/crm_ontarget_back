@@ -29,9 +29,12 @@ function calculateMetrics(leads, attempts) {
   const qualified = leads.filter((lead) => qualifiedStatuses.has(lead.status) || lead.qualification).length;
   const opportunities = leads.filter((lead) => qualifiedStatuses.has(lead.status) || lead.qualification || lead.appointment).length;
   const audits = leads.map((lead) => lead.audits[0]).filter((audit) => audit && auditStatus(audit) !== "not_audited");
+  const auditedLeadIds = new Set(leads.filter((lead) => lead.audits[0] && auditStatus(lead.audits[0]) !== "not_audited").map((lead) => lead.id));
+  const auditedAppointments = leads.filter((lead) => auditedLeadIds.has(lead.id) && lead.appointment).length;
+  const auditedQualified = leads.filter((lead) => auditedLeadIds.has(lead.id) && (qualifiedStatuses.has(lead.status) || lead.qualification)).length;
   const confirmed = audits.filter((audit) => auditStatus(audit) === "confirmed").length;
   const worked = leads.filter((lead) => lead.attempts > 0).length;
-  return { received: leads.length, worked, calls: scopedAttempts.length, contacts, appointments, qualified, opportunities, contactRate: percent(contacts, worked), conversion: percent(appointments, contacts), audited: audits.length, confirmed, divergences: audits.length - confirmed };
+  return { received: leads.length, worked, calls: scopedAttempts.length, contacts, appointments, qualified, opportunities, contactRate: percent(contacts, worked), conversion: percent(appointments, contacts), audited: audits.length, auditedAppointments, auditedQualified, confirmed, divergences: audits.length - confirmed };
 }
 
 async function campaignDashboard(campaignId, storeId) {
@@ -86,7 +89,7 @@ async function campaignDashboard(campaignId, storeId) {
       return { store, leads: storeMetrics.worked, contacts: storeMetrics.contacts, appointments: storeMetrics.appointments, conversion: `${storeMetrics.conversion.toFixed(1)}%` };
     }),
     callResults: [...outcomeCounts.entries()].map(([code, value]) => ({ code, label: resultLabels[code] || code, value, color: resultColors[code] || "#6f7786" })),
-    audit: { registered: metrics.appointments, audited: metrics.audited, confirmed: metrics.confirmed, divergences: metrics.divergences, validationRate: percent(metrics.confirmed, metrics.audited) },
+    audit: { registered: metrics.appointments, audited: metrics.audited, appointments: metrics.auditedAppointments, qualified: metrics.auditedQualified, confirmed: metrics.confirmed, divergences: metrics.divergences, validationRate: percent(metrics.confirmed, metrics.audited) },
   };
 }
 

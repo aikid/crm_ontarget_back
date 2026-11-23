@@ -22,6 +22,7 @@ const auditFieldsSchema = z.object({
   ),
 }).refine((data) => data.auditNotes !== undefined || data.sellerOption !== undefined);
 const nonContacts = new Set(["NO_ANSWER", "VOICEMAIL", "INVALID_NUMBER"]);
+const positiveOutcomes = new Set(["QUALIFIED", "DIRECTED", "SCHEDULED"]);
 const outcomeMeta = {
   NO_ANSWER: { label: "Não atendeu", color: "#a9afbb" },
   VOICEMAIL: { label: "Caixa Postal", color: "#a9afbb" },
@@ -100,6 +101,24 @@ function timeKey(date, singleDay) {
   return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "America/Sao_Paulo" }).format(date);
 }
 
+function dateKeyInSaoPaulo(date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function hourInSaoPaulo(date) {
+  return Number(new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Sao_Paulo", hour: "2-digit", hourCycle: "h23",
+  }).format(date));
+}
+
+function uniqueLeadCount(attempts) {
+  return new Set(attempts.map((attempt) => attempt.leadId)).size;
+}
+
 router.get("/dashboard", async (request, response) => {
   const period = parsePeriod(request.query);
   const leadRelation = relationFilter(request.query);
@@ -110,19 +129,27 @@ router.get("/dashboard", async (request, response) => {
   };
   const pendingWhere = { ...leadRelation, status: "PENDING", invalidPhone: false };
   const callbackWhere = {
-    completedAt: null,
     scheduledAt: { gte: period.start, lt: period.end },
     ...(Object.keys(leadRelation).length ? { lead: leadRelation } : {}),
   };
+  const baseWhere = {
+    ...leadRelation,
+    ...(request.query.sdrId && request.query.sdrId !== "all"
+      ? { attemptRecords: { some: { sdrId: request.query.sdrId } } }
+      : {}),
+  };
 
-  const [attempts, pending, callbacks, agents, activeSessions, reserved] = await Promise.all([
+  const [attempts, pending, callbackRecords, agents, activeSessions, reserved, baseTotal] = await Promise.all([
     prisma.attempt.findMany({
       where: attemptWhere,
-      include: { sdr: { select: { id: true, name: true, initials: true } } },
+      include: {
+        sdr: { select: { id: true, name: true, initials: true } },
+        lead: { select: { campaignId: true, campaign: { select: { name: true } } } },
+      },
       orderBy: { createdAt: "asc" },
     }),
     prisma.lead.count({ where: pendingWhere }),
-    prisma.callback.count({ where: callbackWhere }),
+    prisma.callback.findMany({ where: callbackWhere, select: { scheduledAt: true, completedAt: true } }),
     prisma.user.findMany({ where: { role: "SDR", active: true }, select: { id: true, name: true, initials: true }, orderBy: { name: "asc" } }),
     prisma.authSession.findMany({
       where: { expiresAt: { gt: new Date() }, user: { role: "SDR", active: true } },
@@ -130,10 +157,17 @@ router.get("/dashboard", async (request, response) => {
       distinct: ["userId"],
     }),
     prisma.lead.count({ where: { ...leadRelation, reservedUntil: { gt: new Date() } } }),
+    prisma.lead.count({ where: baseWhere }),
   ]);
 
   const contacts = attempts.filter((attempt) => !nonContacts.has(attempt.outcome));
-  const qualified = attempts.filter((attempt) => ["QUALIFIED", "DIRECTED", "SCHEDULED"].includes(attempt.outcome));
+  const qualified = attempts.filter((attempt) => positiveOutcomes.has(attempt.outcome));
+  const workedCount = uniqueLeadCount(attempts);
+  const contactCount = uniqueLeadCount(contacts);
+  const qualifiedCount = uniqueLeadCount(qualified);
+  const scheduledCount = uniqueLeadCount(attempts.filter((attempt) => attempt.outcome === "SCHEDULED"));
+  const directedCount = uniqueLeadCount(attempts.filter((attempt) => attempt.outcome === "DIRECTED"));
+  const overdueCallbacks = callbackRecords.filter((callback) => !callback.completedAt && callback.scheduledAt < new Date()).length;
   const grouped = new Map();
   attempts.forEach((attempt) => grouped.set(attempt.outcome, (grouped.get(attempt.outcome) || 0) + 1));
 
@@ -159,31 +193,128 @@ router.get("/dashboard", async (request, response) => {
   const ranking = agents.map((agent) => {
     const own = attempts.filter((attempt) => attempt.sdrId === agent.id);
     const ownContacts = own.filter((attempt) => !nonContacts.has(attempt.outcome));
-    const ownQualified = own.filter((attempt) => ["QUALIFIED", "DIRECTED", "SCHEDULED"].includes(attempt.outcome));
+    const ownQualified = own.filter((attempt) => positiveOutcomes.has(attempt.outcome));
+    const ownWorkedCount = uniqueLeadCount(own);
+    const ownContactCount = uniqueLeadCount(ownContacts);
+    const ownQualifiedCount = uniqueLeadCount(ownQualified);
     return {
       ...agent,
       attempts: own.length,
-      contacts: ownContacts.length,
-      qualified: ownQualified.length,
-      conversion: ownContacts.length ? percent((ownQualified.length / ownContacts.length) * 100) : 0,
+      worked: ownWorkedCount,
+      contacts: ownContactCount,
+      qualified: ownQualifiedCount,
+      conversion: ownContactCount ? percent((ownQualifiedCount / ownContactCount) * 100) : 0,
     };
   }).sort((a, b) => b.qualified - a.qualified || b.contacts - a.contacts || b.attempts - a.attempts);
+
+  const dailyMap = new Map();
+  for (let cursor = period.start.getTime(); cursor < period.end.getTime(); cursor += 86_400_000) {
+    const date = new Date(cursor + 12 * 60 * 60_000);
+    const key = dateKeyInSaoPaulo(date);
+    dailyMap.set(key, { key, label: timeKey(date, false), attempts: 0, worked: new Set(), contacts: new Set(), positives: new Set() });
+  }
+  attempts.forEach((attempt) => {
+    const day = dailyMap.get(dateKeyInSaoPaulo(attempt.createdAt));
+    if (!day) return;
+    day.attempts += 1;
+    day.worked.add(attempt.leadId);
+    if (!nonContacts.has(attempt.outcome)) day.contacts.add(attempt.leadId);
+    if (positiveOutcomes.has(attempt.outcome)) day.positives.add(attempt.leadId);
+  });
+  const cumulativeWorked = new Set();
+  const daily = Array.from(dailyMap.values()).map((day) => {
+    day.worked.forEach((leadId) => cumulativeWorked.add(leadId));
+    const worked = day.worked.size;
+    const contactsToday = day.contacts.size;
+    const positivesToday = day.positives.size;
+    return {
+      key: day.key,
+      label: day.label,
+      attempts: day.attempts,
+      worked,
+      contacts: contactsToday,
+      positives: positivesToday,
+      contactRate: worked ? percent((contactsToday / worked) * 100) : 0,
+      conversion: contactsToday ? percent((positivesToday / contactsToday) * 100) : 0,
+      coverage: baseTotal ? percent((cumulativeWorked.size / baseTotal) * 100) : 0,
+    };
+  });
+
+  const hourly = Array.from({ length: 12 }, (_, index) => {
+    const hour = index + 8;
+    const hourAttempts = attempts.filter((attempt) => hourInSaoPaulo(attempt.createdAt) === hour);
+    const hourContacts = hourAttempts.filter((attempt) => !nonContacts.has(attempt.outcome));
+    return {
+      label: `${String(hour).padStart(2, "0")}h`,
+      attempts: hourAttempts.length,
+      contactRate: hourAttempts.length ? percent((hourContacts.length / hourAttempts.length) * 100) : 0,
+    };
+  });
+
+  const attemptSequence = [1, 2, 3, 4].map((sequence) => {
+    const sequenceAttempts = attempts.filter((attempt) => sequence === 4 ? attempt.sequence >= 4 : attempt.sequence === sequence);
+    const sequenceContacts = sequenceAttempts.filter((attempt) => !nonContacts.has(attempt.outcome));
+    return {
+      sequence,
+      label: sequence === 4 ? "4ª ou mais" : `${sequence}ª tentativa`,
+      attempts: sequenceAttempts.length,
+      contactRate: sequenceAttempts.length ? percent((sequenceContacts.length / sequenceAttempts.length) * 100) : 0,
+    };
+  });
+
+  const campaignMap = new Map();
+  attempts.forEach((attempt) => {
+    const id = attempt.lead.campaignId;
+    if (!campaignMap.has(id)) campaignMap.set(id, { id, name: attempt.lead.campaign.name, attempts: [] });
+    campaignMap.get(id).attempts.push(attempt);
+  });
+  const campaignPerformance = Array.from(campaignMap.values()).map((campaign) => {
+    const campaignContacts = campaign.attempts.filter((attempt) => !nonContacts.has(attempt.outcome));
+    const campaignPositives = campaign.attempts.filter((attempt) => positiveOutcomes.has(attempt.outcome));
+    const campaignWorked = uniqueLeadCount(campaign.attempts);
+    const campaignContactCount = uniqueLeadCount(campaignContacts);
+    const campaignPositiveCount = uniqueLeadCount(campaignPositives);
+    return {
+      id: campaign.id,
+      name: campaign.name,
+      attempts: campaign.attempts.length,
+      worked: campaignWorked,
+      contacts: campaignContactCount,
+      positive: campaignPositiveCount,
+      conversion: campaignContactCount ? percent((campaignPositiveCount / campaignContactCount) * 100) : 0,
+    };
+  }).sort((a, b) => b.positive - a.positive || b.contacts - a.contacts);
 
   response.json({
     period: { from: period.fromKey, to: period.toKey },
     kpis: {
-      worked: new Set(attempts.map((attempt) => attempt.leadId)).size,
+      worked: workedCount,
       attempts: attempts.length,
-      contacts: contacts.length,
-      qualified: qualified.length,
-      callbacks,
-      contactRate: attempts.length ? percent((contacts.length / attempts.length) * 100) : 0,
-      conversion: contacts.length ? percent((qualified.length / contacts.length) * 100) : 0,
+      contacts: contactCount,
+      qualified: qualifiedCount,
+      callbacks: callbackRecords.length,
+      contactRate: workedCount ? percent((contactCount / workedCount) * 100) : 0,
+      conversion: contactCount ? percent((qualifiedCount / contactCount) * 100) : 0,
     },
-    live: { pending, activeSdrs: activeSessions.length, reserved, callbacks },
+    live: { pending, activeSdrs: activeSessions.length, reserved, callbacks: callbackRecords.filter((callback) => !callback.completedAt).length },
     activity,
     outcomes: Object.entries(outcomeMeta).map(([code, meta]) => ({ code, ...meta, value: grouped.get(code) || 0 })),
     ranking,
+    analytics: {
+      baseTotal,
+      noAttempt: Math.max(0, baseTotal - workedCount),
+      scheduled: scheduledCount,
+      directed: directedCount,
+      callbacks: {
+        expected: callbackRecords.length,
+        completed: callbackRecords.filter((callback) => callback.completedAt).length,
+        overdue: overdueCallbacks,
+      },
+      daily,
+      hourly,
+      attemptSequence,
+      campaigns: campaignPerformance,
+    },
   });
 });
 

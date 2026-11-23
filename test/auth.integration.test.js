@@ -780,6 +780,12 @@ test("dashboard e consulta de leads usam tentativas reais e respeitam filtros", 
     assert.equal(indicators.kpis.qualified, 1);
     assert.equal(indicators.kpis.conversion, 100);
     assert.equal(indicators.outcomes.find((item) => item.code === "DIRECTED").value, 1);
+    assert.equal(indicators.analytics.baseTotal, 2);
+    assert.equal(indicators.analytics.directed, 1);
+    assert.equal(indicators.analytics.daily[0].attempts, 2);
+    assert.equal(indicators.analytics.daily[0].contacts, 1);
+    assert.equal(indicators.analytics.attemptSequence[0].attempts, 2);
+    assert.equal(indicators.analytics.campaigns[0].positive, 1);
 
     const leadSearch = await request(`/api/operations/leads?campaignId=${fixture.campaign.id}&search=Lead%20fila%201`, {
       headers: { Cookie: manager.cookie },
@@ -821,6 +827,17 @@ test("somente gestor pode consultar ou baixar gravações", async () => {
 
 test("integração Python lista gravações e salva auditoria sem duplicidade", async () => {
   const fixture = await createQueueFixture(1);
+  const portalUser = await prisma.user.create({
+    data: {
+      clientId: fixture.client.id,
+      name: "Portal auditoria",
+      email: `portal-auditoria-${Date.now()}@example.test`,
+      initials: "PA",
+      passwordHash: await hashPassword("OnTarget@123"),
+      role: "CLIENT",
+    },
+  });
+  const portal = await login(portalUser.email, true);
   const token = "token-tecnico-de-auditoria-com-mais-de-32-caracteres";
   const previousToken = env.auditIntegration.token;
   env.auditIntegration.token = token;
@@ -859,6 +876,10 @@ test("integração Python lista gravações e salva auditoria sem duplicidade", 
       where: { id: fixture.leads[0].id },
       data: { auditNotes: "Observação manual do gestor.", sellerOption: "Usado" },
     });
+    const unauditedPortalList = await request(`/api/campaigns/${fixture.campaign.id}/leads`, { headers: { Cookie: portal.cookie } });
+    assert.equal(unauditedPortalList.status, 200);
+    assert.equal((await unauditedPortalList.json()).pagination.total, 0);
+    assert.equal((await request(`/api/leads/${fixture.leads[0].id}`, { headers: { Cookie: portal.cookie } })).status, 404);
     assert.equal((await request("/api/integrations/audit/recordings", {
       headers: { Authorization: "Bearer inválido" },
     })).status, 401);
@@ -888,6 +909,11 @@ test("integração Python lista gravações e salva auditoria sem duplicidade", 
     assert.equal(auditedLead.sellerOption, "Usado");
     assert.equal(auditedLead.status, "PENDING");
     assert.equal(auditedLead.attempts, 0);
+
+    const auditedPortalList = await request(`/api/campaigns/${fixture.campaign.id}/leads`, { headers: { Cookie: portal.cookie } });
+    assert.equal(auditedPortalList.status, 200);
+    assert.equal((await auditedPortalList.json()).pagination.total, 1);
+    assert.equal((await request(`/api/leads/${fixture.leads[0].id}`, { headers: { Cookie: portal.cookie } })).status, 200);
 
     const queryAudit = await request(endpoint, { headers });
     assert.equal(queryAudit.status, 200);
@@ -924,6 +950,7 @@ test("integração Python lista gravações e salva auditoria sem duplicidade", 
     assert.equal((await request("/api/telephony/asterisk/calls/inexistente/recording", { headers })).status, 404);
   } finally {
     env.auditIntegration.token = previousToken;
+    await prisma.user.delete({ where: { id: portalUser.id } });
     await cleanupQueueFixture(fixture);
   }
 });

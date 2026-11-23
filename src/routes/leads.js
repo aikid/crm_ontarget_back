@@ -54,6 +54,9 @@ const legacyCallResult = {
   CALLBACK: "callback",
 };
 
+const outcomesWithVehicle = new Set(["FUTURE_INTEREST", "DIRECTED", "SCHEDULED"]);
+const outcomesWithNotes = new Set(["ALREADY_BOUGHT", "NOT_QUALIFIED", "LIMBO", "FUTURE_INTEREST", "DIRECTED", "SCHEDULED"]);
+
 function optionalNotes(value) {
   if (value === undefined || value === null || value === "") return null;
   if (typeof value !== "string") throw new HttpError(400, "notes deve ser um texto.");
@@ -72,14 +75,21 @@ function optionalVehicle(value) {
 
 router.get("/:leadId", requireRole("GESTOR", "CLIENT"), async (request, response) => {
   const lead = await leadForAuth(request.auth, request.params.leadId, leadInclude);
+  if (request.auth.user.role === "CLIENT") {
+    const completedAudit = await prisma.audit.findFirst({
+      where: { leadId: lead.id, auditedAt: { not: null } },
+      select: { id: true },
+    });
+    if (!completedAudit) throw new HttpError(404, "Lead auditado não encontrado.");
+  }
   response.json(serializeLead(lead));
 });
 
 router.post("/:leadId/outcomes", requireRole("SDR"), requireCsrf, async (request, response) => {
   const outcome = required(request.body.outcome || request.body.result, "outcome");
   if (!outcomes.has(outcome)) throw new HttpError(400, "Resultado de contato inválido.");
-  const notes = optionalNotes(request.body.notes);
-  const vehicle = optionalVehicle(request.body.vehicle);
+  const notes = outcomesWithNotes.has(outcome) ? optionalNotes(request.body.notes) : null;
+  const vehicle = outcomesWithVehicle.has(outcome) ? optionalVehicle(request.body.vehicle) : undefined;
   const leadId = request.params.leadId;
   await leadForAuth(request.auth, leadId);
 
