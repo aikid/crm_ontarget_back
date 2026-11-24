@@ -14,7 +14,6 @@ router.use((request, response, next) => ["GET", "HEAD", "OPTIONS"].includes(requ
 const sellerOptions = ["Todos", "Venda direta", "0km", "Usado", "Consórcio"];
 const schema = z.object({
   clientId: z.string().min(1).optional(),
-  storeId: z.string().min(1),
   sellerOption: z.enum(sellerOptions),
   name: z.string().trim().min(2).max(120),
   email: z.string().trim().email().transform((value) => value.toLowerCase()),
@@ -49,14 +48,13 @@ router.post("/", async (request, response, next) => {
   requireEmailConfiguration();
   const data = schema.parse(request.body);
   const clientId = clientIdFor(request, data.clientId);
-  const store = await prisma.store.findFirst({ where: { id: data.storeId, clientId, active: true, client: { active: true } } });
-  if (!store) throw new HttpError(400, "Vendedor/loja inexistente, inativo ou pertencente a outro cliente.");
+  const client = await prisma.client.findFirst({ where: { id: clientId, active: true } });
+  if (!client) throw new HttpError(400, "Cliente inexistente ou inativo.");
 
   const password = temporaryPassword();
   const user = await prisma.user.create({
     data: {
       clientId,
-      storeId: store.id,
       sellerOption: data.sellerOption,
       name: data.name,
       email: data.email,
@@ -85,15 +83,10 @@ router.patch("/:id", async (request, response) => {
   const clientId = clientIdFor(request, current.clientId);
   if (current.clientId !== clientId) throw new HttpError(403, "Acesso negado ao vendedor de outro cliente.");
   const data = schema.partial().extend({ active: z.boolean().optional() }).parse(request.body);
-  const storeId = data.storeId || current.storeId;
-  if (storeId) {
-    const store = await prisma.store.findFirst({ where: { id: storeId, clientId } });
-    if (!store) throw new HttpError(400, "Vendedor/loja pertencente a outro cliente.");
-  }
   const updated = await prisma.$transaction(async (transaction) => {
     if (data.name && data.name !== current.name) {
       await transaction.appointment.updateMany({
-        where: { lead: { clientId, storeId: current.storeId }, seller: { equals: current.name, mode: "insensitive" } },
+        where: { lead: { clientId }, seller: { equals: current.name, mode: "insensitive" } },
         data: { seller: data.name },
       });
     }

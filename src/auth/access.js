@@ -21,7 +21,6 @@ async function campaignForAuth(auth, campaignId) {
         store: { active: true },
       } : {}),
       ...(auth.user.role === "SELLER" ? {
-        storeId: auth.user.storeId,
         leads: { some: { appointment: { is: { seller: { equals: auth.user.name, mode: "insensitive" } } } } },
       } : {}),
     },
@@ -36,7 +35,6 @@ async function leadForAuth(auth, leadId, include) {
       id: leadId,
       ...(isClientUser(auth) ? { clientId: auth.user.clientId } : {}),
       ...(auth.user.role === "SELLER" ? {
-        storeId: auth.user.storeId,
         appointment: { is: { seller: { equals: auth.user.name, mode: "insensitive" } } },
       } : {}),
     },

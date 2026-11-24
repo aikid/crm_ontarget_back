@@ -23,7 +23,6 @@ router.get("/clients/:clientId/campaigns", requireRole("GESTOR", "CLIENT", "SELL
       ...(request.auth.user.role === "CLIENT" ? { status: { not: "INACTIVE" }, store: { active: true } } : {}),
       ...(request.auth.user.role === "SELLER" ? {
         status: { not: "INACTIVE" },
-        storeId: request.auth.user.storeId,
         leads: { some: { appointment: { is: { seller: { equals: request.auth.user.name, mode: "insensitive" } } } } },
       } : {}),
     },
@@ -38,7 +37,7 @@ router.get("/clients/:clientId/stores", requireRole("GESTOR", "CLIENT", "SELLER"
     where: {
       clientId: request.params.clientId,
       ...(request.auth.user.role === "CLIENT" ? { active: true } : {}),
-      ...(request.auth.user.role === "SELLER" ? { id: request.auth.user.storeId, active: true } : {}),
+      ...(request.auth.user.role === "SELLER" ? { active: true } : {}),
     },
     orderBy: { name: "asc" },
   });

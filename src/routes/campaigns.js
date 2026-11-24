@@ -53,7 +53,6 @@ router.get("/:campaignId/leads", async (request, response) => {
   const pageSize = Math.min(100, Math.max(1, Number(request.query.pageSize) || 20));
   const where = leadWhere(request.params.campaignId, request.query, ["CLIENT", "SELLER"].includes(request.auth.user.role));
   if (request.auth.user.role === "SELLER") {
-    where.storeId = request.auth.user.storeId;
     where.AND = [...(where.AND || []), { appointment: { is: { seller: { equals: request.auth.user.name, mode: "insensitive" } } } }];
   }
   const [total, leads] = await Promise.all([
