@@ -15,7 +15,7 @@ async function loadAuth(request) {
     !session
     || session.expiresAt <= new Date()
     || !session.user.active
-    || (session.user.role === "CLIENT" && !session.user.client?.active)
+    || (["CLIENT", "SELLER"].includes(session.user.role) && !session.user.client?.active)
   ) return null;
   return { session, user: session.user };
 }
@@ -35,6 +35,9 @@ function requireRole(...roles) {
   return (request, _response, next) => {
     if (!request.auth || !roles.includes(request.auth.user.role)) {
       throw new HttpError(403, "Você não tem permissão para realizar esta ação.");
+    }
+    if (request.auth.user.mustChangePassword) {
+      throw new HttpError(403, "Altere sua senha provisória antes de continuar.");
     }
     next();
   };

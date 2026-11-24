@@ -34,6 +34,7 @@ model Store {
   leads     Lead[]
   metrics   CampaignMetric[]
   imports   ImportBatch[]
+  users     User[]
 
   @@unique([id, clientId])
   @@index([clientId])
@@ -42,14 +43,18 @@ model Store {
 model User {
   id                  String               @id @default(cuid())
   clientId            String?
+  storeId             String?
   name                String
   email               String               @unique
   initials            String
   passwordHash        String
   role                UserRole
+  sellerOption        String?
+  mustChangePassword  Boolean              @default(false)
   active              Boolean              @default(true)
   lastLoginAt         DateTime?
   client              Client?              @relation(fields: [clientId], references: [id])
+  store               Store?               @relation(fields: [storeId, clientId], references: [id, clientId], onDelete: Restrict)
   calls               Call[]
   attempts            Attempt[]
   callbacks           Callback[]
@@ -60,6 +65,7 @@ model User {
   sipAccount          SipAccount?
 
   @@index([clientId])
+  @@index([storeId, clientId])
 }
 
 model SipAccount {
@@ -82,6 +88,7 @@ enum UserRole {
   GESTOR
   SDR
   CLIENT
+  SELLER
 }
 
 enum CampaignStatus {

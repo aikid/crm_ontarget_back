@@ -229,7 +229,7 @@ router.delete("/stores/:id", async (request, response) => {
   const { id } = idParams.parse(request.params);
   const store = await prisma.store.findUnique({
     where: { id },
-    include: { _count: { select: { campaigns: true, leads: true, metrics: true, imports: true } } },
+    include: { _count: { select: { campaigns: true, leads: true, metrics: true, imports: true, users: true } } },
   });
   if (!store) throw new HttpError(404, "Vendedor não encontrado.");
   if (Object.values(store._count).some(Boolean)) {
@@ -292,7 +292,7 @@ router.delete("/campaigns/:id", async (request, response) => {
 
 router.get("/users", async (_request, response) => {
   const rows = await prisma.user.findMany({
-    where: { role: { not: "ADMIN" } },
+    where: { role: { notIn: ["ADMIN", "SELLER"] } },
     include: { client: { select: { id: true, name: true, active: true } } },
     orderBy: [{ role: "asc" }, { name: "asc" }],
   });

@@ -73,9 +73,9 @@ function optionalVehicle(value) {
   return vehicle || undefined;
 }
 
-router.get("/:leadId", requireRole("GESTOR", "CLIENT"), async (request, response) => {
+router.get("/:leadId", requireRole("GESTOR", "CLIENT", "SELLER"), async (request, response) => {
   const lead = await leadForAuth(request.auth, request.params.leadId, leadInclude);
-  if (request.auth.user.role === "CLIENT") {
+  if (["CLIENT", "SELLER"].includes(request.auth.user.role)) {
     const completedAudit = await prisma.audit.findFirst({
       where: { leadId: lead.id, auditedAt: { not: null } },
       select: { id: true },

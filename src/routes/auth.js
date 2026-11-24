@@ -113,7 +113,7 @@ router.patch("/profile", requireAuth, requireCsrf, async (request, response) => 
       where: { id: request.auth.user.id },
       data: {
         ...(data.name ? { name: data.name, initials: initials(data.name) } : {}),
-        ...(data.newPassword ? { passwordHash: await hashPassword(data.newPassword) } : {}),
+        ...(data.newPassword ? { passwordHash: await hashPassword(data.newPassword), mustChangePassword: false } : {}),
       },
       include: { client: true },
     });

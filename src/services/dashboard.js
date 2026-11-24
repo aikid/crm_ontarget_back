@@ -37,11 +37,15 @@ function calculateMetrics(leads, attempts) {
   return { received: leads.length, worked, calls: scopedAttempts.length, contacts, appointments, qualified, opportunities, contactRate: percent(contacts, worked), conversion: percent(appointments, contacts), audited: audits.length, auditedAppointments, auditedQualified, confirmed, divergences: audits.length - confirmed };
 }
 
-async function campaignDashboard(campaignId, storeId) {
+async function campaignDashboard(campaignId, storeId, sellerName = null) {
   const campaign = await prisma.campaign.findUnique({ where: { id: campaignId }, include: { store: { select: { id: true, name: true, shortName: true } } } });
   if (!campaign) throw new HttpError(404, "Campanha n\u00e3o encontrada.");
 
-  const where = { campaignId, ...(storeId && storeId !== "all" ? { storeId } : {}) };
+  const where = {
+    campaignId,
+    ...(storeId && storeId !== "all" ? { storeId } : {}),
+    ...(sellerName ? { appointment: { is: { seller: { equals: sellerName, mode: "insensitive" } } } } : {}),
+  };
   const [leads, attempts] = await Promise.all([
     prisma.lead.findMany({
       where,

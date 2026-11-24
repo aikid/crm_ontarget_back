@@ -15,24 +15,30 @@ router.get("/session", (request, response) => {
   });
 });
 
-router.get("/clients/:clientId/campaigns", requireRole("GESTOR", "CLIENT"), async (request, response) => {
+router.get("/clients/:clientId/campaigns", requireRole("GESTOR", "CLIENT", "SELLER"), async (request, response) => {
   assertClientAccess(request.auth, request.params.clientId);
   const campaigns = await prisma.campaign.findMany({
     where: {
       clientId: request.params.clientId,
       ...(request.auth.user.role === "CLIENT" ? { status: { not: "INACTIVE" }, store: { active: true } } : {}),
+      ...(request.auth.user.role === "SELLER" ? {
+        status: { not: "INACTIVE" },
+        storeId: request.auth.user.storeId,
+        leads: { some: { appointment: { is: { seller: { equals: request.auth.user.name, mode: "insensitive" } } } } },
+      } : {}),
     },
     orderBy: { startDate: "desc" },
   });
   response.json({ data: campaigns.map(serializeCampaign) });
 });
 
-router.get("/clients/:clientId/stores", requireRole("GESTOR", "CLIENT"), async (request, response) => {
+router.get("/clients/:clientId/stores", requireRole("GESTOR", "CLIENT", "SELLER"), async (request, response) => {
   assertClientAccess(request.auth, request.params.clientId);
   const stores = await prisma.store.findMany({
     where: {
       clientId: request.params.clientId,
       ...(request.auth.user.role === "CLIENT" ? { active: true } : {}),
+      ...(request.auth.user.role === "SELLER" ? { id: request.auth.user.storeId, active: true } : {}),
     },
     orderBy: { name: "asc" },
   });

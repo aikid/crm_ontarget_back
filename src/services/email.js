@@ -60,4 +60,18 @@ async function sendPasswordEmail({ user, token, access = false }) {
   });
 }
 
-module.exports = { isEmailConfigured, requireEmailConfiguration, sendPasswordEmail };
+async function sendTemporaryPasswordEmail({ user, temporaryPassword }) {
+  const url = new URL("/", env.email.resetUrl || env.frontendUrls[0]).toString();
+  const title = "Seu acesso de vendedor ao SysOn";
+  const intro = "Seu acesso foi criado com uma senha provisória. No primeiro login, você deverá definir uma nova senha.";
+
+  await transport().sendMail({
+    from: env.email.from,
+    to: user.email,
+    subject: title,
+    text: `${intro}\n\nAcesso: ${url}\nE-mail: ${user.email}\nSenha provisória: ${temporaryPassword}\n\nNão compartilhe esta senha.`,
+    html: `<!doctype html><html lang="pt-BR"><body style="margin:0;background:#f5f5f6;font-family:Arial,sans-serif;color:#202127"><div style="max-width:560px;margin:32px auto;padding:32px;background:#fff;border-radius:16px"><p style="color:#e8202a;font-weight:700;letter-spacing:.08em">SYSON</p><h1 style="font-size:24px">${escapeHtml(title)}</h1><p>Olá, ${escapeHtml(user.name)}.</p><p>${escapeHtml(intro)}</p><p><strong>E-mail:</strong> ${escapeHtml(user.email)}<br><strong>Senha provisória:</strong> ${escapeHtml(temporaryPassword)}</p><p style="margin:28px 0"><a href="${escapeHtml(url)}" style="display:inline-block;padding:13px 20px;border-radius:9px;background:#e8202a;color:#fff;text-decoration:none;font-weight:700">Entrar no SysOn</a></p><p style="font-size:13px;color:#6d7078">Não compartilhe esta senha.</p></div></body></html>`,
+  });
+}
+
+module.exports = { isEmailConfigured, requireEmailConfiguration, sendPasswordEmail, sendTemporaryPasswordEmail };

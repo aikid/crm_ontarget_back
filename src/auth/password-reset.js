@@ -41,7 +41,7 @@ async function resetPassword(token, password) {
     });
     if (claimed.count !== 1) throw new HttpError(400, "Este link de recuperação já foi utilizado.");
 
-    await transaction.user.update({ where: { id: reset.userId }, data: { passwordHash } });
+    await transaction.user.update({ where: { id: reset.userId }, data: { passwordHash, mustChangePassword: false } });
     await transaction.authSession.deleteMany({ where: { userId: reset.userId } });
     return reset.userId;
   });

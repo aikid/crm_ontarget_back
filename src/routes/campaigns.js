@@ -7,11 +7,11 @@ const { campaignForAuth } = require("../auth/access");
 const { requireRole } = require("../middleware/auth");
 
 const router = express.Router();
-router.use(requireRole("GESTOR", "CLIENT"));
+router.use(requireRole("GESTOR", "CLIENT", "SELLER"));
 
 router.get("/:campaignId/dashboard", async (request, response) => {
   await campaignForAuth(request.auth, request.params.campaignId);
-  response.json(await campaignDashboard(request.params.campaignId, request.query.storeId));
+  response.json(await campaignDashboard(request.params.campaignId, request.query.storeId, request.auth.user.role === "SELLER" ? request.auth.user.name : null));
 });
 
 function leadWhere(campaignId, query, auditedOnly = false) {
@@ -51,7 +51,11 @@ router.get("/:campaignId/leads", async (request, response) => {
   await campaignForAuth(request.auth, request.params.campaignId);
   const page = Math.max(1, Number(request.query.page) || 1);
   const pageSize = Math.min(100, Math.max(1, Number(request.query.pageSize) || 20));
-  const where = leadWhere(request.params.campaignId, request.query, request.auth.user.role === "CLIENT");
+  const where = leadWhere(request.params.campaignId, request.query, ["CLIENT", "SELLER"].includes(request.auth.user.role));
+  if (request.auth.user.role === "SELLER") {
+    where.storeId = request.auth.user.storeId;
+    where.AND = [...(where.AND || []), { appointment: { is: { seller: { equals: request.auth.user.name, mode: "insensitive" } } } }];
+  }
   const [total, leads] = await Promise.all([
     prisma.lead.count({ where }),
     prisma.lead.findMany({

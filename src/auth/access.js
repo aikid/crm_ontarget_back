@@ -2,7 +2,7 @@ const prisma = require("../lib/prisma");
 const { HttpError } = require("../lib/http-error");
 
 function isClientUser(auth) {
-  return auth.user.role === "CLIENT";
+  return ["CLIENT", "SELLER"].includes(auth.user.role);
 }
 
 function assertClientAccess(auth, clientId) {
@@ -20,6 +20,10 @@ async function campaignForAuth(auth, campaignId) {
         status: { not: "INACTIVE" },
         store: { active: true },
       } : {}),
+      ...(auth.user.role === "SELLER" ? {
+        storeId: auth.user.storeId,
+        leads: { some: { appointment: { is: { seller: { equals: auth.user.name, mode: "insensitive" } } } } },
+      } : {}),
     },
   });
   if (!campaign) throw new HttpError(404, "Campanha não encontrada.");
@@ -31,6 +35,10 @@ async function leadForAuth(auth, leadId, include) {
     where: {
       id: leadId,
       ...(isClientUser(auth) ? { clientId: auth.user.clientId } : {}),
+      ...(auth.user.role === "SELLER" ? {
+        storeId: auth.user.storeId,
+        appointment: { is: { seller: { equals: auth.user.name, mode: "insensitive" } } },
+      } : {}),
     },
     ...(include ? { include } : {}),
   });
