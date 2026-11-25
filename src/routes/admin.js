@@ -232,10 +232,15 @@ router.delete("/stores/:id", async (request, response) => {
     include: { _count: { select: { campaigns: true, leads: true, metrics: true, imports: true, users: true } } },
   });
   if (!store) throw new HttpError(404, "Vendedor não encontrado.");
-  if (Object.values(store._count).some(Boolean)) {
+  const operationalLinks = store._count.campaigns || store._count.leads || store._count.metrics || store._count.imports;
+  if (operationalLinks) {
     throw new HttpError(409, "Este vendedor possui ações, leads, métricas ou importações. Desative-o para preservar o histórico.");
   }
-  await prisma.store.delete({ where: { id } });
+  await prisma.$transaction([
+    prisma.authSession.deleteMany({ where: { user: { storeId: id, role: "SELLER" } } }),
+    prisma.user.deleteMany({ where: { storeId: id, role: "SELLER" } }),
+    prisma.store.delete({ where: { id } }),
+  ]);
   response.status(204).end();
 });
 

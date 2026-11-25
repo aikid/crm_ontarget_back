@@ -25,6 +25,7 @@ model Store {
   id        String           @id @default(cuid())
   clientId  String
   name      String
+  email     String?          @unique
   shortName String
   active    Boolean          @default(true)
   createdAt DateTime         @default(now())
