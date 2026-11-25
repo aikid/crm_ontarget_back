@@ -12,17 +12,14 @@ router.use(requireRole("GESTOR", "CLIENT"));
 router.use((request, response, next) => ["GET", "HEAD", "OPTIONS"].includes(request.method) ? next() : requireCsrf(request, response, next));
 
 const sellerOptions = ["Todos", "Venda direta", "0km", "Usado", "Consórcio"];
-const email = z.string().trim().email().transform((value) => value.toLowerCase());
-const createSchema = z.object({
+const schema = z.object({
   clientId: z.string().min(1).optional(),
   sellerOption: z.enum(sellerOptions),
   name: z.string().trim().min(2).max(120),
-  email,
+  email: z.string().trim().email().transform((value) => value.toLowerCase()),
 });
-const updateSchema = createSchema.omit({ clientId: true }).partial().extend({ active: z.boolean().optional() })
-  .refine((data) => Object.keys(data).length > 0);
 
-function requestedClientId(request, requested) {
+function clientIdFor(request, requested) {
   if (request.auth.user.role === "CLIENT") return request.auth.user.clientId;
   if (!requested) throw new HttpError(400, "Selecione o cliente.");
   return requested;
@@ -36,159 +33,75 @@ function initials(name) {
   return name.split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase();
 }
 
-const sellerInclude = {
-  client: { select: { id: true, name: true, active: true } },
-  users: {
-    where: { role: "SELLER" },
-    select: { id: true, email: true, active: true, lastLoginAt: true, mustChangePassword: true },
-    take: 1,
-  },
-  _count: { select: { campaigns: true, leads: true } },
-};
-
-function publicSeller(store) {
-  const access = store.users?.[0] || null;
-  const { users, ...seller } = store;
-  return {
-    ...seller,
-    sellerOption: store.shortName,
-    email: store.email || access?.email || "",
-    access,
-  };
-}
-
-async function findSeller(id) {
-  return prisma.store.findUnique({ where: { id }, include: sellerInclude });
+function publicSeller(user) {
+  const { passwordHash, ...safe } = user;
+  return safe;
 }
 
 router.get("/", async (request, response) => {
-  const selectedClientId = request.query.clientId ? String(request.query.clientId) : undefined;
-  const clientId = request.auth.user.role === "CLIENT" ? request.auth.user.clientId : selectedClientId;
-  const stores = await prisma.store.findMany({
-    where: clientId ? { clientId } : {},
-    include: sellerInclude,
+  const requestedClientId = request.query.clientId ? String(request.query.clientId) : undefined;
+  const clientId = request.auth.user.role === "CLIENT" ? request.auth.user.clientId : requestedClientId;
+  const users = await prisma.user.findMany({
+    where: { role: "SELLER", ...(clientId ? { clientId } : {}) },
+    include: { client: { select: { id: true, name: true, active: true } }, store: { select: { id: true, name: true, shortName: true, active: true } } },
     orderBy: [{ client: { name: "asc" } }, { name: "asc" }],
   });
-  response.json({ data: stores.map(publicSeller) });
+  response.json({ data: users.map(publicSeller) });
 });
 
 router.post("/", async (request, response, next) => {
   requireEmailConfiguration();
-  const data = createSchema.parse(request.body);
-  const clientId = requestedClientId(request, data.clientId);
+  const data = schema.parse(request.body);
+  const clientId = clientIdFor(request, data.clientId);
   const client = await prisma.client.findFirst({ where: { id: clientId, active: true } });
   if (!client) throw new HttpError(400, "Cliente inexistente ou inativo.");
 
   const password = temporaryPassword();
-  const created = await prisma.$transaction(async (transaction) => {
-    const store = await transaction.store.create({
-      data: { clientId, name: data.name, email: data.email, shortName: data.sellerOption },
-    });
-    const user = await transaction.user.create({
-      data: {
-        clientId,
-        storeId: store.id,
-        sellerOption: data.sellerOption,
-        name: data.name,
-        email: data.email,
-        initials: initials(data.name),
-        role: "SELLER",
-        active: false,
-        mustChangePassword: true,
-        passwordHash: await hashPassword(password),
-      },
-    });
-    return { store, user };
+  const user = await prisma.user.create({
+    data: {
+      clientId,
+      sellerOption: data.sellerOption,
+      name: data.name,
+      email: data.email,
+      initials: initials(data.name),
+      role: "SELLER",
+      active: false,
+      mustChangePassword: true,
+      passwordHash: await hashPassword(password),
+    },
+    include: { client: true, store: true },
   });
-
   try {
-    await sendTemporaryPasswordEmail({ user: created.user, temporaryPassword: password });
-    await prisma.user.update({ where: { id: created.user.id }, data: { active: true } });
-    return response.status(201).json(publicSeller(await findSeller(created.store.id)));
+    await sendTemporaryPasswordEmail({ user, temporaryPassword: password });
+    const activated = await prisma.user.update({ where: { id: user.id }, data: { active: true }, include: { client: true, store: true } });
+    return response.status(201).json(publicSeller(activated));
   } catch (error) {
-    await prisma.$transaction([
-      prisma.user.deleteMany({ where: { id: created.user.id } }),
-      prisma.store.deleteMany({ where: { id: created.store.id } }),
-    ]).catch(() => undefined);
+    await prisma.user.delete({ where: { id: user.id } }).catch(() => undefined);
     return next(error);
   }
 });
 
-router.patch("/:id", async (request, response, next) => {
-  const data = updateSchema.parse(request.body);
-  const current = await findSeller(request.params.id);
+router.patch("/:id", async (request, response) => {
+  const current = await prisma.user.findFirst({ where: { id: request.params.id, role: "SELLER" } });
   if (!current) throw new HttpError(404, "Vendedor não encontrado.");
-  const clientId = requestedClientId(request, current.clientId);
+  const clientId = clientIdFor(request, current.clientId);
   if (current.clientId !== clientId) throw new HttpError(403, "Acesso negado ao vendedor de outro cliente.");
-
-  const access = current.users[0] || null;
-  const nextName = data.name || current.name;
-  const nextEmail = data.email || current.email || access?.email;
-  const nextOption = data.sellerOption || current.shortName;
-
-  if (!access && nextEmail) {
-    requireEmailConfiguration();
-    const password = temporaryPassword();
-    const user = await prisma.$transaction(async (transaction) => {
-      await transaction.store.update({
-        where: { id: current.id },
-        data: { name: nextName, email: nextEmail, shortName: nextOption, ...(data.active !== undefined ? { active: data.active } : {}) },
-      });
-      return transaction.user.create({
-        data: {
-          clientId,
-          storeId: current.id,
-          sellerOption: nextOption,
-          name: nextName,
-          email: nextEmail,
-          initials: initials(nextName),
-          role: "SELLER",
-          active: false,
-          mustChangePassword: true,
-          passwordHash: await hashPassword(password),
-        },
-      });
-    });
-    try {
-      await sendTemporaryPasswordEmail({ user, temporaryPassword: password });
-      await prisma.user.update({ where: { id: user.id }, data: { active: data.active ?? true } });
-      return response.json(publicSeller(await findSeller(current.id)));
-    } catch (error) {
-      await prisma.user.deleteMany({ where: { id: user.id } }).catch(() => undefined);
-      return next(error);
-    }
-  }
-
-  await prisma.$transaction(async (transaction) => {
+  const data = schema.partial().extend({ active: z.boolean().optional() }).parse(request.body);
+  const updated = await prisma.$transaction(async (transaction) => {
     if (data.name && data.name !== current.name) {
       await transaction.appointment.updateMany({
         where: { lead: { clientId }, seller: { equals: current.name, mode: "insensitive" } },
         data: { seller: data.name },
       });
     }
-    await transaction.store.update({
+    return transaction.user.update({
       where: { id: current.id },
-      data: {
-        ...(data.name !== undefined ? { name: data.name } : {}),
-        ...(data.email !== undefined ? { email: data.email } : {}),
-        ...(data.sellerOption !== undefined ? { shortName: data.sellerOption } : {}),
-        ...(data.active !== undefined ? { active: data.active } : {}),
-      },
+      data: { ...data, clientId, ...(data.name ? { initials: initials(data.name) } : {}) },
+      include: { client: true, store: true },
     });
-    if (access) {
-      await transaction.user.update({
-        where: { id: access.id },
-        data: {
-          ...(data.name !== undefined ? { name: data.name, initials: initials(data.name) } : {}),
-          ...(data.email !== undefined ? { email: data.email } : {}),
-          ...(data.sellerOption !== undefined ? { sellerOption: data.sellerOption } : {}),
-          ...(data.active !== undefined ? { active: data.active } : {}),
-        },
-      });
-      if (data.active === false) await transaction.authSession.deleteMany({ where: { userId: access.id } });
-    }
   });
-  response.json(publicSeller(await findSeller(current.id)));
+  if (data.active === false) await prisma.authSession.deleteMany({ where: { userId: current.id } });
+  response.json(publicSeller(updated));
 });
 
 module.exports = router;
