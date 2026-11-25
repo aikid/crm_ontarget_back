@@ -22,6 +22,40 @@ test.before(async () => {
   });
 });
 
+test("gestor lista todos os vendedores e cliente somente os vinculados", async () => {
+  const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  const manager = await login("carlos@ontarget.com.br");
+  const clientA = await prisma.client.create({ data: { name: `Cliente vendedores A ${suffix}` } });
+  const clientB = await prisma.client.create({ data: { name: `Cliente vendedores B ${suffix}` } });
+  const passwordHash = await hashPassword("OnTarget@123");
+  const portal = await prisma.user.create({ data: { clientId: clientA.id, name: "Portal A", email: `portal-a-${suffix}@example.test`, initials: "PA", passwordHash, role: "CLIENT" } });
+  const sellerUser = await prisma.user.create({ data: { clientId: clientA.id, name: "Vendedor com acesso", email: `seller-a-${suffix}@example.test`, initials: "VA", passwordHash, role: "SELLER", sellerOption: "Todos" } });
+  const legacyA = await prisma.store.create({ data: { clientId: clientA.id, name: "Vendedor legado A", shortName: "0km" } });
+  const legacyB = await prisma.store.create({ data: { clientId: clientB.id, name: "Vendedor legado B", shortName: "Usado" } });
+
+  try {
+    const managerResponse = await request("/api/sellers", { headers: { Cookie: manager.cookie } });
+    assert.equal(managerResponse.status, 200);
+    const managerIds = new Set((await managerResponse.json()).data.map((seller) => seller.id));
+    assert.equal(managerIds.has(sellerUser.id), true);
+    assert.equal(managerIds.has(legacyA.id), true);
+    assert.equal(managerIds.has(legacyB.id), true);
+
+    const clientSession = await login(portal.email, true);
+    const clientResponse = await request("/api/sellers", { headers: { Cookie: clientSession.cookie } });
+    assert.equal(clientResponse.status, 200);
+    const clientRows = (await clientResponse.json()).data;
+    assert.deepEqual(new Set(clientRows.map((seller) => seller.id)), new Set([sellerUser.id, legacyA.id]));
+    assert.equal(clientRows.every((seller) => seller.clientId === clientA.id), true);
+  } finally {
+    await prisma.authSession.deleteMany({ where: { userId: { in: [portal.id, sellerUser.id] } } });
+    await prisma.user.deleteMany({ where: { id: { in: [portal.id, sellerUser.id] } } });
+    await prisma.store.deleteMany({ where: { id: { in: [legacyA.id, legacyB.id] } } });
+    await prisma.client.deleteMany({ where: { id: { in: [clientA.id, clientB.id] } } });
+    loginCache.delete(portal.email);
+  }
+});
+
 test.after(async () => {
   await prisma.authSession.deleteMany();
   await new Promise((resolve) => server.close(resolve));

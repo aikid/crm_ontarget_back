@@ -35,18 +35,48 @@ function initials(name) {
 
 function publicSeller(user) {
   const { passwordHash, ...safe } = user;
-  return safe;
+  return { ...safe, source: "USER" };
+}
+
+function publicLegacySeller(store) {
+  return {
+    id: store.id,
+    clientId: store.clientId,
+    storeId: store.id,
+    name: store.name,
+    email: "",
+    initials: initials(store.name),
+    role: "SELLER",
+    sellerOption: store.shortName,
+    mustChangePassword: false,
+    active: store.active,
+    lastLoginAt: null,
+    client: store.client,
+    store: { id: store.id, name: store.name, shortName: store.shortName, active: store.active },
+    source: "STORE",
+  };
 }
 
 router.get("/", async (request, response) => {
   const requestedClientId = request.query.clientId ? String(request.query.clientId) : undefined;
   const clientId = request.auth.user.role === "CLIENT" ? request.auth.user.clientId : requestedClientId;
-  const users = await prisma.user.findMany({
-    where: { role: "SELLER", ...(clientId ? { clientId } : {}) },
-    include: { client: { select: { id: true, name: true, active: true } }, store: { select: { id: true, name: true, shortName: true, active: true } } },
-    orderBy: [{ client: { name: "asc" } }, { name: "asc" }],
-  });
-  response.json({ data: users.map(publicSeller) });
+  const where = clientId ? { clientId } : {};
+  const [users, stores] = await Promise.all([
+    prisma.user.findMany({
+      where: { role: "SELLER", ...where },
+      include: { client: { select: { id: true, name: true, active: true } }, store: { select: { id: true, name: true, shortName: true, active: true } } },
+    }),
+    prisma.store.findMany({
+      where,
+      include: { client: { select: { id: true, name: true, active: true } } },
+    }),
+  ]);
+  const linkedStoreIds = new Set(users.map((user) => user.storeId).filter(Boolean));
+  const data = [
+    ...users.map(publicSeller),
+    ...stores.filter((store) => !linkedStoreIds.has(store.id)).map(publicLegacySeller),
+  ].sort((left, right) => left.client.name.localeCompare(right.client.name, "pt-BR") || left.name.localeCompare(right.name, "pt-BR"));
+  response.json({ data });
 });
 
 router.post("/", async (request, response, next) => {
@@ -83,10 +113,66 @@ router.post("/", async (request, response, next) => {
 
 router.patch("/:id", async (request, response) => {
   const current = await prisma.user.findFirst({ where: { id: request.params.id, role: "SELLER" } });
-  if (!current) throw new HttpError(404, "Vendedor não encontrado.");
+  const data = schema.partial().extend({ active: z.boolean().optional() }).parse(request.body);
+  if (!current) {
+    const store = await prisma.store.findUnique({
+      where: { id: request.params.id },
+      include: { client: { select: { id: true, name: true, active: true } } },
+    });
+    if (!store) throw new HttpError(404, "Vendedor não encontrado.");
+    const clientId = clientIdFor(request, store.clientId);
+    if (store.clientId !== clientId) throw new HttpError(403, "Acesso negado ao vendedor de outro cliente.");
+
+    const nextName = data.name || store.name;
+    const nextOption = data.sellerOption || store.shortName;
+    if (!data.email) {
+      const updatedStore = await prisma.store.update({
+        where: { id: store.id },
+        data: {
+          ...(data.name !== undefined ? { name: data.name } : {}),
+          ...(data.sellerOption !== undefined ? { shortName: data.sellerOption } : {}),
+          ...(data.active !== undefined ? { active: data.active } : {}),
+        },
+        include: { client: { select: { id: true, name: true, active: true } } },
+      });
+      return response.json(publicLegacySeller(updatedStore));
+    }
+
+    requireEmailConfiguration();
+    const password = temporaryPassword();
+    const user = await prisma.$transaction(async (transaction) => {
+      await transaction.store.update({
+        where: { id: store.id },
+        data: { name: nextName, shortName: nextOption, ...(data.active !== undefined ? { active: data.active } : {}) },
+      });
+      return transaction.user.create({
+        data: {
+          clientId,
+          storeId: store.id,
+          sellerOption: nextOption,
+          name: nextName,
+          email: data.email,
+          initials: initials(nextName),
+          role: "SELLER",
+          active: false,
+          mustChangePassword: true,
+          passwordHash: await hashPassword(password),
+        },
+        include: { client: true, store: true },
+      });
+    });
+    try {
+      await sendTemporaryPasswordEmail({ user, temporaryPassword: password });
+      const activated = await prisma.user.update({ where: { id: user.id }, data: { active: data.active ?? true }, include: { client: true, store: true } });
+      return response.json(publicSeller(activated));
+    } catch (error) {
+      await prisma.user.delete({ where: { id: user.id } }).catch(() => undefined);
+      throw error;
+    }
+  }
+
   const clientId = clientIdFor(request, current.clientId);
   if (current.clientId !== clientId) throw new HttpError(403, "Acesso negado ao vendedor de outro cliente.");
-  const data = schema.partial().extend({ active: z.boolean().optional() }).parse(request.body);
   const updated = await prisma.$transaction(async (transaction) => {
     if (data.name && data.name !== current.name) {
       await transaction.appointment.updateMany({
